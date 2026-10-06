@@ -86,7 +86,7 @@ func main() {
 	flag.Parse()
 
 	if *showVer {
-		fmt.Println("dst-windows", appVersion)
+		fmt.Println("dstwin", appVersion)
 		return
 	}
 
@@ -240,6 +240,7 @@ func main() {
 	}
 	fmt.Println("========================================")
 	fmt.Println("  按 Ctrl+C 停止面板并安全关闭所有服务器")
+	fmt.Printf("  请打开浏览器，访问 http://%s:%d 进入开服面板\n", *bind, *port)
 
 	// 优雅退出：先关面板，再优雅停服（会先 c_save 再 shutdown）
 	go func() {
