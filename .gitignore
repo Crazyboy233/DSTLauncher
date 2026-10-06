@@ -1,0 +1,23 @@
+# 前端依赖与构建产物
+web/node_modules/
+web/dist/
+
+# Go 构建产物
+dst-windows.exe
+dst-windows.exe~
+
+# 运行期数据：存档、日志、房间定义
+dst_save/
+logs/
+
+# 本机专用的面板配置（服务器安装路径、架构偏好，由 Web 面板写入）
+serverdir.txt
+panel.json
+steamcmd/
+
+# 本地私密文件（Klei 服务器令牌等），绝不能提交
+个人测试信息.txt
+*.token
+
+# 共享工坊模组目录（-ugc_directory，所有房间共用同一份 mod）
+ugc_mods/

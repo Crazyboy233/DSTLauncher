@@ -1,0 +1,185 @@
+/* ==========================================================================
+   1. 设计令牌与基础样式
+   --------------------------------------------------------------------------
+   主题由 <html data-theme="light|dark"> 决定，色值全部走下面的变量，
+   组件样式里不出现任何硬编码颜色，因此切主题不需要改组件。
+   ========================================================================== */
+
+:root {
+  /* 布局尺寸 */
+  --sidebar-w: 228px;
+  --topbar-h: 58px;
+
+  /* 表面层次（浅色为默认值） */
+  --bg:            #f1f4f9;
+  --bg-grad:
+    radial-gradient(900px 420px at 8% -8%, rgba(22, 163, 74, .10) 0%, transparent 62%),
+    radial-gradient(760px 380px at 96% 4%, rgba(2, 132, 199, .08) 0%, transparent 60%);
+  --surface:       #ffffff;
+  --surface-2:     #f8fafc;
+  --surface-3:     #eef2f7;
+  --sidebar-bg:    #ffffff;
+  --border:        #e3e9f1;
+  --border-strong: #cfd8e5;
+  --text:          #0d1526;
+  --text-2:        #4a5568;
+  --text-muted:    #74809a;
+
+  /* 语义色 */
+  --accent:        #15a34a;
+  --accent-hover:  #128a3f;
+  --accent-soft:   #e6f6ec;
+  --accent-text:   #ffffff;
+  --accent-glow:   rgba(21, 163, 74, .22);
+
+  --ok:            #15a34a;
+  --ok-soft:       #e6f6ec;
+  --warn:          #a9600a;
+  --warn-soft:     #fdf4e4;
+  --danger:        #d92b3a;
+  --danger-hover:  #b81d2c;
+  --danger-soft:   #fdecee;
+  --info:          #0369a1;
+  --info-soft:     #e6f2fa;
+
+  /* 控制台与配置预览始终是深底，两套主题下取值相同 */
+  --code-bg:     #0c1016;
+  --code-border: #202836;
+  --code-text:   #c6ccd8;
+  --code-muted:  #78839a;
+  --code-ok:     #4ade80;
+  --code-warn:   #fbbf24;
+  --code-danger: #f87171;
+  --code-info:   #60a5fa;
+
+  /* 阴影：分三档，越小越常用 */
+  --shadow-xs: 0 1px 2px rgba(13, 21, 38, .05);
+  --shadow-sm: 0 1px 3px rgba(13, 21, 38, .07), 0 1px 2px rgba(13, 21, 38, .04);
+  --shadow-md: 0 4px 12px rgba(13, 21, 38, .08), 0 1px 3px rgba(13, 21, 38, .05);
+  --shadow-lg: 0 16px 40px rgba(13, 21, 38, .16);
+
+  --radius-sm: 8px;
+  --radius:    12px;
+  --radius-lg: 16px;
+
+  --ring: 0 0 0 3px var(--accent-glow);
+
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg:            #0a0d13;
+  --bg-grad:
+    radial-gradient(900px 420px at 8% -8%, rgba(34, 197, 94, .10) 0%, transparent 62%),
+    radial-gradient(760px 380px at 96% 4%, rgba(56, 189, 248, .07) 0%, transparent 60%);
+  --surface:       #12161d;
+  --surface-2:     #171c24;
+  --surface-3:     #1f2530;
+  --sidebar-bg:    #0d1116;
+  --border:        #242b36;
+  --border-strong: #333c49;
+  --text:          #e8ecf3;
+  --text-2:        #aab3c2;
+  --text-muted:    #7c879a;
+
+  --accent:        #22c55e;
+  --accent-hover:  #34d27a;
+  --accent-soft:   #122c1e;
+  --accent-text:   #05200f;
+  --accent-glow:   rgba(34, 197, 94, .26);
+
+  --ok:            #22c55e;
+  --ok-soft:       #122c1e;
+  --warn:          #f0b429;
+  --warn-soft:     #2e2410;
+  --danger:        #f2545b;
+  --danger-hover:  #ff6b71;
+  --danger-soft:   #2e181b;
+  --info:          #38bdf8;
+  --info-soft:     #0f2836;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, .5);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .5);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, .5);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, .6);
+
+  color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------
+   基础
+   -------------------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+* { margin: 0; padding: 0; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  min-height: 100vh;
+  background-color: var(--bg);
+  background-image: var(--bg-grad);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color .2s ease, color .2s ease;
+}
+
+:where(h1, h2, h3, h4) { font-weight: 600; line-height: 1.35; letter-spacing: -.01em; }
+
+:where(a) { color: var(--accent); }
+
+:where(svg) { display: block; }
+
+code, pre, .mono {
+  font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+}
+
+code {
+  font-size: .92em;
+  padding: .05em .35em;
+  border-radius: 5px;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+[hidden] { display: none !important; }
+
+.spacer { flex: 1 1 auto; }
+
+/* 滚动条 */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); background-clip: content-box; }
+
+/* --------------------------------------------------------------------------
+   全局过渡（配合 Vue 的 <Transition>）
+   -------------------------------------------------------------------------- */
+
+.fade-enter-from { opacity: 0; transform: translateY(6px); }
+.fade-enter-active { transition: opacity .2s ease, transform .2s ease; }
+
+.toast-enter-from,
+.toast-leave-to { opacity: 0; transform: translateX(16px) scale(.97); }
+.toast-enter-active,
+.toast-leave-active { transition: opacity .22s ease, transform .22s ease; }
+
+/* 尊重「减少动效」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}

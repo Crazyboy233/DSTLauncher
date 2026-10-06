@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme-mode="auto">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DST 开服控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2316a34a'/%3E%3Cpath d='M16 7l7 12H9z' fill='%23fff'/%3E%3Crect x='8' y='21' width='16' height='4' rx='1.5' fill='%23fff'/%3E%3C/svg%3E">
+  <script>
+    // 在样式生效前确定主题，避免刷新时闪一下浅色。
+    // 这段必须是内联的同步脚本，放到 Vue 里执行就晚了。
+    (function () {
+      var mode = 'auto';
+      try { mode = localStorage.getItem('dst-theme') || 'auto'; } catch (e) {}
+      var dark = mode === 'dark' ||
+        (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.dataset.themeMode = mode;
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    })();
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

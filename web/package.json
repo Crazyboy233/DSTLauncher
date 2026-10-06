@@ -1,0 +1,25 @@
+{
+  "name": "dst-windows-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DST 开服控制台前端",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "node scripts/check-src.mjs && eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "pinia": "^4.0.3",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "eslint": "^10.12.0",
+    "eslint-plugin-vue": "^10.11.1",
+    "vite": "^8.3.2"
+  }
+}
