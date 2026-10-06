@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,15 +29,15 @@ import (
 // Options 汇集 Web 层的全部依赖。
 // 用结构体而非一长串位置参数，避免以后新增依赖时改乱所有调用点。
 type Options struct {
-	Mgr       *server.Manager
-	Rooms     *room.Store
-	Steam     *steamcmd.Manager
-	StaticDir string
-	RootDir   string // -persistent_storage_root
-	ConfDir   string // -conf_dir
-	WorkDir   string // 程序目录，用于读写 panel.json
-	UgcDir    string // 共享工坊模组目录（-ugc_directory）
-	Version   string // 面板版本号，展示在侧边栏，便于确认「跑的是哪个构建」
+	Mgr      *server.Manager
+	Rooms    *room.Store
+	Steam    *steamcmd.Manager
+	StaticFS fs.FS  // 前端静态资源（嵌入的 web/dist 产物）
+	RootDir  string // -persistent_storage_root
+	ConfDir  string // -conf_dir
+	WorkDir  string // 程序目录，用于读写 panel.json
+	UgcDir   string // 共享工坊模组目录（-ugc_directory）
+	Version  string // 面板版本号，展示在侧边栏，便于确认「跑的是哪个构建」
 }
 
 // Server 汇集所有模块的处理器，向前端暴露统一 API。
@@ -44,29 +45,29 @@ type Options struct {
 // 模组与备份管理器不预先构造：它们的目录随房间变化，
 // 每次请求按 room 参数现算（构造本身只是拼路径，开销可忽略）。
 type Server struct {
-	mgr     *server.Manager
-	rooms   *room.Store
-	steam   *steamcmd.Manager
-	static  string
-	rootDir string
-	confDir string
-	workDir string
-	ugcDir  string
-	version string
+	mgr      *server.Manager
+	rooms    *room.Store
+	steam    *steamcmd.Manager
+	staticFS fs.FS
+	rootDir  string
+	confDir  string
+	workDir  string
+	ugcDir   string
+	version  string
 }
 
 // NewServer 创建 HTTP 服务。
 func NewServer(o Options) *Server {
 	return &Server{
-		mgr:     o.Mgr,
-		rooms:   o.Rooms,
-		steam:   o.Steam,
-		static:  o.StaticDir,
-		rootDir: o.RootDir,
-		confDir: o.ConfDir,
-		workDir: o.WorkDir,
-		ugcDir:  o.UgcDir,
-		version: o.Version,
+		mgr:      o.Mgr,
+		rooms:    o.Rooms,
+		steam:    o.Steam,
+		staticFS: o.StaticFS,
+		rootDir:  o.RootDir,
+		confDir:  o.ConfDir,
+		workDir:  o.WorkDir,
+		ugcDir:   o.UgcDir,
+		version:  o.Version,
 	}
 }
 
@@ -146,7 +147,7 @@ func (s *Server) Handler() http.Handler {
 	// 静态资源。index.html 必须禁缓存：前端产物带 hash 文件名，
 	// 浏览器缓存了旧 index.html 就会继续加载旧 bundle，
 	// 表现为「后端明明更新了，页面行为还是老的」
-	mux.Handle("/", noCacheHTML(http.FileServer(http.Dir(s.static))))
+	mux.Handle("/", noCacheHTML(http.FileServer(http.FS(s.staticFS))))
 
 	return mux
 }

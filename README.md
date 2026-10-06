@@ -1,8 +1,6 @@
-# dst-windows
+# DSTWin · 饥荒联机版 Windows 开服面板
 
-Windows 原生《饥荒联机版》(Don't Starve Together) 专用服务器管理系统。
-
-参考 [dst-management-platform-api](../dst-management-platform-api)（DMP）的功能设计，但不 fork、不依赖其 Linux 组件——用 Go 原生进程管理替代 `screen`/`bash`/`ps`/`tail`，可在 Windows 上直接运行，无需 WSL。
+Windows 原生《饥荒联机版》(Don't Starve Together) 专用服务器管理系统。用 Go 原生进程管理（`exec.Command` + stdin 管道）替代 Linux 下的 `screen`/`bash`/`ps`/`tail`，在 Windows 上直接运行，无需 WSL。
 
 自用工具，非通用分发软件。
 
@@ -24,21 +22,25 @@ Windows 原生《饥荒联机版》(Don't Starve Together) 专用服务器管理
 
 ## 构建与运行
 
-```bash
-# 后端（在仓库根目录）
-go build -o dst-windows.exe .
+前端产物通过 `go:embed` 打进二进制，**构建产物只有一个 exe**。改了前端代码后，必须先重新构建前端再编译 Go：
 
+```bash
 # 前端（修改 web/ 下代码后需要重新构建）
 cd web
 npm install
-npm run build   # 产物输出到 web/dist，由 Go 端 embed 提供
+npm run build   # 产物输出到 web/dist，编译时嵌入 exe
+
+# 后端（在仓库根目录，要求 web/dist 已存在）
+go build -o dstwin.exe .
 
 # 运行
-./dst-windows.exe              # 默认端口 127.0.0.1:8899
-./dst-windows.exe -port 8080   # 指定端口
-./dst-windows.exe -install     # 仅安装服务器文件后退出
-./dst-windows.exe -v           # 显示版本
+./dstwin.exe              # 默认端口 127.0.0.1:8899
+./dstwin.exe -port 8080   # 指定端口
+./dstwin.exe -install     # 仅安装服务器文件后退出
+./dstwin.exe -v           # 显示版本
 ```
+
+发布 release 只需带上 `dstwin.exe` 一个文件；`dst_save/`、`ugc_mods/`、`logs/`、`panel.json` 首次运行自动生成，SteamCMD 缺失时面板会自动下载。
 
 ### 命令行参数
 
@@ -57,10 +59,11 @@ npm run build   # 产物输出到 web/dist，由 Go 端 embed 提供
 ```
 main.go                 入口：参数解析、目录探测、面板启动
 internal/
-  server/               进程管理层（Go 原生替代 screen）：启停、守护、崩溃重启
+  server/               进程管理层（Go 原生进程管理）：启停、守护、崩溃重启
   room/                 房间：创建、配置生成、cluster.ini/server.ini/token、管理员名单
   config/               ini 读写、路径计算（-persistent_storage_root 等）
   steamcmd/             SteamCMD 调用、Steam 库探测、服务器安装与更新
+  workshop/             创意工坊 mod 下载
   modmgr/               mod 管理：modoverrides.lua、dedicated_server_mods_setup.lua 同步
   saveimport/           外部存档整包导入
   backup/               存档备份与回滚
@@ -73,23 +76,19 @@ ugc_mods/               共享 mod 目录（-ugc_directory）
 logs/                   运行日志、mod 更新日志
 ```
 
-## 与 DMP 的主要差异
+## 关键实现说明
 
-| | DMP (Linux) | dst-windows (Windows) |
-|---|---|---|
-| 进程管理 | GNU screen | Go `exec.Command` + `StdinPipe` |
-| 找进程 | `ps -ef \| grep \| awk` | Windows API / gopsutil |
-| 日志读取 | `tail -1000` | 文件读取 + SSE 推流 |
-| 存档位置 | `~/.klei` | 程序目录下 `dst_save/`（规避 OneDrive 重定向） |
-| 依赖注入 | LuaJIT `.so`（TMI） | 无 |
+- **进程管理**：`exec.Command` 启动分片进程（地面/洞穴各一个），`CREATE_NEW_PROCESS_GROUP` 脱离终端控制；长期持有 stdin 管道写入控制台命令；`cmd.Wait()` 监听退出实现崩溃检测与自动重启
+- **存档路径**：用 `-persistent_storage_root` 指向程序目录下的 `dst_save/`，规避 Windows 默认 `文档\Klei` 路径受 OneDrive 重定向的影响
+- **mod 预下载**：启动分片前以 `-only_update_server_mods` 跑一次预更新（引擎约 30 秒无回调即退出、一轮只下 1 个，面板自动多轮循环直至下载完整），分片启动时带 `-skip_update_server_mods` 避免多分片抢写共享目录
+- **mods 并集同步**：`dedicated_server_mods_setup.lua` 是安装级文件，面板在 mod/房间增删改时自动重算为所有房间启用 mod 的并集
 
 ## 已知注意事项
 
 - 地面（Master）与洞穴（Caves）是**两个独立进程**，端口必须错开
 - 启动参数顺序敏感：`-persistent_storage_root <绝对路径> -conf_dir <单段名> -cluster <单段名> -shard <单段名>`，可执行文件工作目录必须是 `bin/`
 - 配置文件（ini/lua）必须 **UTF-8 无 BOM**，否则中文乱码
-- 引擎限制：`-only_update_server_mods` 下载阶段约 30 秒无回调就退出，一轮往往只下 1 个 mod，面板会自动多轮循环直至下载完整
-- 停止服务器务必走面板的"停止"，进程会被直接终止
+- 停止服务器务必走面板的"停止"，停止前会自动保存存档
 
 ## 许可
 

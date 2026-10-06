@@ -11,8 +11,10 @@
 package main
 
 import (
+	"embed"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -36,6 +38,13 @@ const (
 	// 可避免 OneDrive 重定向导致的存档位置漂移。
 	defaultRootName = "dst_save"
 )
+
+// 前端构建产物直接嵌入二进制，发布时只需要一个 exe。
+// 代价是改前端后必须先 cd web && npm run build，再 go build。
+// all: 前缀让 _/. 开头的文件也参与嵌入（Vite 哈希文件名不受影响，但保证行为一致）。
+//
+//go:embed all:web/dist
+var webDist embed.FS
 
 // pickServerOverride 返回用户显式指定的服务器安装目录及其来源描述。
 // 优先级：命令行 > 环境变量 > 面板配置（panel.json，可在 Web 界面里改）。
@@ -92,8 +101,6 @@ func main() {
 	// 共享工坊模组目录：通过 -ugc_directory 让所有房间、所有分片读同一份模组，
 	// 避免默认布局（按房间/分片各存一份）造成的磁盘翻倍与「换房间要搬文件」
 	ugcDir := filepath.Join(workDir, "ugc_mods")
-	// 前端是 Vue 工程，这里提供的是 npm run build 的产物
-	webDir := filepath.Join(workDir, "web", "dist")
 
 	for _, d := range []string{rootDir, logDir, ugcDir} {
 		if err := os.MkdirAll(d, 0755); err != nil {
@@ -147,10 +154,11 @@ func main() {
 		return
 	}
 
-	// 面板本身没有前端产物就只是空壳，提前给出可执行的修复指引，
-	// 比打开浏览器看到 404 再回来猜要省事
-	if _, err := os.Stat(filepath.Join(webDir, "index.html")); err != nil {
-		log.Fatalf("未找到前端产物：%s\n请先构建前端：\n  cd web\n  npm install\n  npm run build", webDir)
+	// 前端产物已嵌入二进制（编译时要求 web/dist 存在），
+	// 这里取出 web/dist 子树作为静态文件根
+	staticFS, err := fs.Sub(webDist, "web/dist")
+	if err != nil {
+		log.Fatalf("前端嵌入产物异常: %v", err)
 	}
 
 	// 房间定义是配置的唯一事实来源，所有 ini 都由它生成
@@ -188,15 +196,15 @@ func main() {
 	}
 
 	api := web.NewServer(web.Options{
-		Mgr:       mgr,
-		Rooms:     rooms,
-		Steam:     steam,
-		StaticDir: webDir,
-		RootDir:   rootDir,
-		ConfDir:   server.ConfDir,
-		WorkDir:   workDir,
-		UgcDir:    ugcDir,
-		Version:   appVersion,
+		Mgr:      mgr,
+		Rooms:    rooms,
+		Steam:    steam,
+		StaticFS: staticFS,
+		RootDir:  rootDir,
+		ConfDir:  server.ConfDir,
+		WorkDir:  workDir,
+		UgcDir:   ugcDir,
+		Version:  appVersion,
 	})
 	// 模组下载清单是安装级的，启动时按所有房间重算一次并集，
 	// 避免上次运行遗留的清单与当前房间配置对不上

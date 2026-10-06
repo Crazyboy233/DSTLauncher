@@ -2,7 +2,8 @@
 web/node_modules/
 web/dist/
 
-# Go 构建产物
+# Go 构建产物（extract-worldsettings 为开发期工具，同样不提交）
+dstwin.exe
 dst-windows.exe
 dst-windows.exe~
 
@@ -21,3 +22,4 @@ steamcmd/
 
 # 共享工坊模组目录（-ugc_directory，所有房间共用同一份 mod）
 ugc_mods/
+extract-worldsettings.exe
