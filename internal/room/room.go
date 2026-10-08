@@ -1,7 +1,5 @@
 // Package room 管理"房间"。
 //
-// 术语对照（与 DMP 一致）：
-//
 //	房间 Room  = 一个 DST 集群，对应存档目录 <root>/<confDir>/Cluster_<ID>
 //	分片 Shard = 集群下的一个世界进程，Master（地表）与 Caves（洞穴）各是一个独立进程
 //
@@ -30,7 +28,6 @@ type Shard struct {
 }
 
 // Room 是一个房间的全部可配置项。
-// 字段与 DMP 的 models.Room 对齐，去掉了自用场景不需要的 Steam 群组与 mod 合并项。
 type Room struct {
 	ID          int    `json:"id"`          // 自增，同时决定 Cluster_<ID>
 	Name        string `json:"name"`        // cluster_name

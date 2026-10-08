@@ -1,7 +1,6 @@
 // Command dst-windows 是一套 Windows 原生的《饥荒联机版》开服管理系统。
 //
-// 与 Linux 上的 DMP 不同，它不依赖 screen / bash 等外部工具，
-// 而是用 Go 原生的进程管理能力直接控制服务器进程，因此可在 Windows 上原生运行。
+// 用 Go 原生的进程管理能力直接控制服务器进程，可在 Windows 上原生运行。
 //
 // 用法：
 //

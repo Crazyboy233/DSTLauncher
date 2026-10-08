@@ -1,6 +1,6 @@
 // Package server 实现 DST 专用服务器的进程管理层。
 //
-// 这是整个系统最核心的一层，负责替代 DMP 依赖的 GNU screen：
+// 这是整个系统最核心的一层：
 //   - 启动：exec.Command + CREATE_NEW_PROCESS_GROUP，让进程脱离控制台独立存活
 //   - 命令注入：长期持有 cmd.StdinPipe()，直接往进程标准输入写控制台命令
 //   - 崩溃检测：cmd.Wait() 监听退出，返回非零退出码即判定为崩溃
@@ -854,7 +854,7 @@ func (m *Manager) Status(clusterKey string) []Status {
 //
 // 注意：Go 中 cmd.ProcessState 只有在 cmd.Wait() 返回之后才会被填充，
 // 进程运行期间它一直是 nil。因此 nil 必须视为"存活"，
-// 否则启动后立即会被误判为已退出（这正是 DMP 用 screen 时不会遇到的语义差异）。
+// 否则启动后立即会被误判为已退出。
 func (p *process) isAlive() bool {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return false
