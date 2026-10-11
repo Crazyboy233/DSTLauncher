@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// 端口分配区间。沿用 DMP 的约定，四个区间互不重叠，
+// 端口分配区间。四个区间互不重叠，
 // 因此同一台机器上开多个房间时不会互相抢占。
 const (
 	serverPortBase      = 11000 // 游戏端口
@@ -34,7 +34,7 @@ type fileFormat struct {
 }
 
 // Store 负责房间定义的持久化。
-// 相比 DMP 用 SQLite，这里只需要一个 JSON 文件：
+// 这里需要一个 JSON 文件：
 // 自用场景房间数量是个位数，也没有并发写入，引入数据库得不偿失。
 type Store struct {
 	path string
