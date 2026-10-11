@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"dst-windows/internal/config"
+	"dst-windows/internal/textutil"
 )
 
 // Mod 表示一个模组的完整信息。
@@ -630,6 +631,9 @@ func (m *Manager) ModInfo(id string) (name, desc string) {
 	}
 
 	name = extractModInfoName(string(data))
+	// mod 作者常在名字里放自己图标字体的私用区字形（如 U+F000A），
+	// 任何系统字体都没有，界面上是豆腐块——剥掉
+	name = textutil.Clean(name)
 	if name == "" {
 		// modinfo 里确实没写名字（或写法太怪解析不出），
 		// 退回模组 ID，至少保证列表里能对上号

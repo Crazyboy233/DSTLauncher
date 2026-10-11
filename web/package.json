@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/cli": "^0.1.22",
     "@vitejs/plugin-vue": "^6.0.9",
     "eslint": "^10.12.0",
     "eslint-plugin-vue": "^10.11.1",

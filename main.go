@@ -12,6 +12,7 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -76,7 +77,7 @@ func pickServerOverride(workDir, flagVal string, cfg panelcfg.Config, cfgExists 
 
 func main() {
 	var (
-		port        = flag.Int("port", 8899, "管理面板端口")
+		port        = flag.Int("port", 16800, "管理面板端口")
 		bind        = flag.String("bind", "127.0.0.1", "管理面板监听地址")
 		installOnly = flag.Bool("install", false, "仅安装服务器文件后退出")
 		showVer     = flag.Bool("v", false, "显示版本号")
@@ -259,6 +260,19 @@ func main() {
 	}()
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		hintBindError(err, *port)
 		log.Fatalf("服务启动失败: %v", err)
+	}
+}
+
+// hintBindError 对 Windows 下端口绑定失败给出针对性提示。
+// 错误 10013（WSAEACCES）通常不是端口被占用，而是该端口落在
+// Hyper-V/WSL2 动态保留的端口范围内，bind 直接被系统拒绝。
+func hintBindError(err error, port int) {
+	var errno syscall.Errno
+	if errors.As(err, &errno) && errno == 10013 {
+		fmt.Fprintf(os.Stderr, "\n[!] 端口 %d 无法绑定：它很可能落在 Windows 保留端口范围内（常见于 Hyper-V/WSL2 动态保留），并非被其他程序占用。\n", port)
+		fmt.Fprintln(os.Stderr, "    查看保留范围：netsh interface ipv4 show excludedportrange protocol=tcp")
+		fmt.Fprintln(os.Stderr, "    换端口启动：dst-windows.exe -port 16800")
 	}
 }

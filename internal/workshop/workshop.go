@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"dst-windows/internal/textutil"
 )
 
 // Item 是创意工坊物品的展示信息。
@@ -151,8 +153,8 @@ func parseDetails(body []byte) []Item {
 		}
 		item := Item{
 			ID:         d.PublishedFileID,
-			Title:      d.Title,
-			ShortDesc:  d.ShortDesc,
+			Title:      textutil.Clean(d.Title),
+			ShortDesc:  textutil.Clean(d.ShortDesc),
 			PreviewURL: d.PreviewURL,
 		}
 		if item.ShortDesc == "" {
@@ -267,8 +269,8 @@ func Search(apiKey, query string, page int) ([]Item, error) {
 		}
 		item := Item{
 			ID:         d.PublishedFileID,
-			Title:      d.Title,
-			ShortDesc:  d.ShortDesc,
+			Title:      textutil.Clean(d.Title),
+			ShortDesc:  textutil.Clean(d.ShortDesc),
 			PreviewURL: d.PreviewURL,
 			FileSize:   toInt64(d.FileSize),
 		}

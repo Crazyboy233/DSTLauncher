@@ -68,7 +68,19 @@ export const useRoomsStore = defineStore('rooms', () => {
   /* ---------- 加载 ---------- */
 
   async function load() {
-    list.value = (await roomApi.list()) || [];
+    const fresh = (await roomApi.list()) || [];
+    // 原地合并而不是整表替换：每 15 秒的轮询若换成全新对象，
+    // current 的引用就会变，所有 watch(current) 的页面（模组页等）
+    // 都会被触发重载，表现为整页周期性闪烁。
+    const byId = new Map(list.value.map(r => [r.id, r]));
+    list.value = fresh.map(r => {
+      const old = byId.get(r.id);
+      if (old) {
+        Object.assign(old, r);
+        return old;
+      }
+      return r;
+    });
     loaded.value = true;
     // 当前房间被删除或首次加载时，回落到第一个房间
     if (!list.value.some(r => r.id === currentId.value)) {

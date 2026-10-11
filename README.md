@@ -34,7 +34,7 @@ npm run build   # 产物输出到 web/dist，编译时嵌入 exe
 go build -o dstwin.exe .
 
 # 运行
-./dstwin.exe              # 默认端口 127.0.0.1:8899
+./dstwin.exe              # 默认端口 127.0.0.1:16800
 ./dstwin.exe -port 8080   # 指定端口
 ./dstwin.exe -install     # 仅安装服务器文件后退出
 ./dstwin.exe -v           # 显示版本
@@ -46,7 +46,7 @@ go build -o dstwin.exe .
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `-port` | `8899` | 面板端口 |
+| `-port` | `16800` | 面板端口 |
 | `-bind` | `127.0.0.1` | 监听地址 |
 | `-install` | `false` | 仅安装服务器文件后退出 |
 | `-serverdir` | 自动探测 | 专用服务器根目录（含 `bin/` 的 "Don't Starve Together Dedicated Server"） |

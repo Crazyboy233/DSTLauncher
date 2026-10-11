@@ -143,7 +143,9 @@ export const modUpdateApi = {
   start: (roomId, shard, id) => {
     const params = { room: roomId, shard };
     if (id) params.id = id;
-    return request('/api/mods/update', { params });
+    // 必须显式 POST：request() 默认 GET，而 GET 这个端点只是查状态——
+    // 少了 method 会导致「点下载实际只查了一次状态」，静默失败且无任何报错
+    return request('/api/mods/update', { method: 'POST', params });
   },
   stop: () => request('/api/mods/update', { method: 'DELETE' }),
 };

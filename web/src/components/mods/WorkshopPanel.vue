@@ -16,9 +16,11 @@ import UiPill from '@/components/ui/UiPill.vue';
 import { workshopApi } from '@/lib/api.js';
 import { guard, toast } from '@/lib/toast.js';
 
-const props = defineProps({
-  /** 全局更新会话进行中：下载按钮禁用 */
-  updating: { type: Boolean, default: false },
+defineProps({
+  /** 当前正在下载的模组 ID：结果列表里做内联提示 */
+  downloadingId: { type: String, default: '' },
+  /** 下载进度百分比（引擎不打印时为空串，只显示「下载中」） */
+  progress: { type: String, default: '' },
 });
 
 const emit = defineEmits(['download']);
@@ -89,9 +91,9 @@ async function query() {
   }
 }
 
-/** 提取纯 id（下载接口要 workshop-<数字> 格式，交给父组件拼装） */
+/** 提取纯 id（下载接口要 workshop-<数字> 格式，交给父组件拼装）。
+ *  下载中有会话在跑也没关系：后端会排队串行下载 */
 function download(item) {
-  if (props.updating) return;
   emit('download', { id: item.id, name: item.title, installed: item.installed });
 }
 </script>
@@ -139,7 +141,10 @@ function download(item) {
         <div class="workshop-info">
           <div class="workshop-title">
             {{ item.title || item.id }}
-            <UiPill v-if="item.installed" tone="ok">已下载</UiPill>
+            <UiPill v-if="item.id === downloadingId" tone="info">
+              下载中{{ progress ? ' ' + progress : '…' }}
+            </UiPill>
+            <UiPill v-else-if="item.installed" tone="ok">已下载</UiPill>
           </div>
           <p v-if="item.shortDesc" class="workshop-desc">{{ item.shortDesc }}</p>
           <div class="workshop-meta">
@@ -149,7 +154,7 @@ function download(item) {
                   :key="t" class="workshop-tag">{{ t }}</span>
           </div>
         </div>
-        <button class="btn btn-sm" :disabled="updating" :title="updating ? '有更新会话进行中' : ''"
+        <button class="btn btn-sm" :title="item.installed ? '删除本地文件并重新下载（强制刷新）' : '从创意工坊下载'"
                 @click="download(item)">
           <Icon name="download" size="14" />{{ item.installed ? '重新下载' : '下载' }}
         </button>

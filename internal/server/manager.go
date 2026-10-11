@@ -186,6 +186,10 @@ type Manager struct {
 	modCmd     *exec.Cmd
 	modOutput  []string
 	modErr     string
+	// modQueue 是排队等待下载的工坊模组 ID（纯数字）。
+	// 下载动作必须串行：多个引擎进程同时写共享 ugc 目录会损坏文件，
+	// 所以「再点一个下载」不并行、只排队。
+	modQueue []string
 }
 
 // SetExeResolver 设置可执行文件解析回调。每次启动分片都会调用它，

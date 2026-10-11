@@ -30,7 +30,7 @@ export default defineConfig({
     // 两个进程要同时开着：先 `./dst-windows.exe`，再 `npm run dev`。
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8899',
+        target: 'http://127.0.0.1:16800',
         changeOrigin: true,
         // SSE 长连接不能被代理缓冲
         ws: false,

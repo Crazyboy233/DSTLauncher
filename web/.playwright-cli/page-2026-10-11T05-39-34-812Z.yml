@@ -1,0 +1,118 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: DST 开服控制台
+      - generic [ref=e11]: Windows 原生
+    - navigation [ref=e12]:
+      - generic [ref=e13]: 管理
+      - button "概览" [ref=e14] [cursor=pointer]
+      - button "房间" [ref=e21] [cursor=pointer]
+      - button "世界配置" [ref=e27] [cursor=pointer]
+      - button "模组" [ref=e32] [cursor=pointer]
+      - button "备份" [ref=e37] [cursor=pointer]
+      - button "配置预览" [ref=e42] [cursor=pointer]
+    - generic [ref=e48]:
+      - generic [ref=e49]: 日志 已连接
+      - generic "面板版本号，重建后可据此确认跑的是新构建" [ref=e50]: 面板 v0.1.2
+      - generic [ref=e51]: 版本 756039
+  - generic [ref=e52]:
+    - banner [ref=e53]:
+      - generic [ref=e54]:
+        - heading "概览" [level=1] [ref=e55]
+        - generic [ref=e56]: Cluster_1 · 生存 survival · 6 人
+      - generic [ref=e57]: 已停止
+      - generic [ref=e60]:
+        - generic [ref=e61]: 房间
+        - combobox "房间" [ref=e62] [cursor=pointer]:
+          - option "神话棱勋" [selected]
+      - button "切换主题" [ref=e63] [cursor=pointer]
+    - generic [ref=e66]:
+      - generic [ref=e71]: 当前房间
+      - strong [ref=e72]: 神话棱勋
+      - generic [ref=e73]: Cluster_1 · survival
+      - generic [ref=e74]: 已停止
+    - main [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - generic [ref=e85]:
+            - generic [ref=e86]: 运行分片
+            - generic [ref=e87]: 0 / 2
+            - generic [ref=e88]: 地表与洞穴各自独立进程
+          - generic [ref=e94]:
+            - generic [ref=e95]: 当前房间
+            - generic [ref=e96]: 神话棱勋
+            - generic [ref=e97]: 生存 survival
+          - generic [ref=e104]:
+            - generic [ref=e105]: 资源占用
+            - generic [ref=e106]: —
+            - generic [ref=e107]: 未运行
+          - generic [ref=e113]:
+            - generic [ref=e114]: 服务器文件
+            - generic [ref=e115]: "756039"
+            - generic [ref=e116]: 可检查更新
+        - generic [ref=e117]:
+          - article [ref=e118]:
+            - generic [ref=e119]:
+              - heading "房间状态" [level=2] [ref=e120]
+              - generic [ref=e121]:
+                - button "全部启动" [ref=e122] [cursor=pointer]
+                - button "全部停止" [ref=e123] [cursor=pointer]
+            - generic [ref=e124]:
+              - generic [ref=e125]:
+                - generic [ref=e127]: Master
+                - generic [ref=e128]: 未启动
+                - button "启动" [ref=e130] [cursor=pointer]
+              - generic [ref=e131]:
+                - generic [ref=e133]: Caves
+                - generic [ref=e134]: 未启动
+                - button "启动" [ref=e136] [cursor=pointer]
+          - article [ref=e137]:
+            - heading "服务器文件" [level=2] [ref=e139]
+            - generic [ref=e140]:
+              - generic [ref=e141]:
+                - generic [ref=e143]: 已复用已安装的服务器
+                - generic [ref=e144]: 64 位
+              - generic [ref=e146]:
+                - generic [ref=e147]: 来源
+                - generic [ref=e148]: Steam 库 f:/steam
+              - generic [ref=e149]:
+                - generic [ref=e150]: 游戏版本
+                - generic [ref=e151]: "756039"
+              - paragraph [ref=e153]: f:\steam\steamapps\common\Don't Starve Together Dedicated Server
+              - generic [ref=e154]: 更新请在 Steam 中更新「Don't Starve Together Dedicated Server」工具，面板会自动使用最新版本。
+              - group [ref=e156]:
+                - generic "更改服务器文件位置" [ref=e157] [cursor=pointer]
+                - option "自动（优先 64 位）" [selected]
+                - option "64 位"
+                - option "32 位"
+        - article [ref=e158]:
+          - heading "实时日志 地表与洞穴是独立进程，日志分屏查看" [level=2] [ref=e160]:
+            - text: 实时日志
+            - generic [ref=e161]: 地表与洞穴是独立进程，日志分屏查看
+          - generic [ref=e163]:
+            - generic [ref=e164]:
+              - generic [ref=e165]:
+                - generic [ref=e166]: Master
+                - generic [ref=e167]: 地表世界
+                - generic [ref=e168]: 已连接
+                - generic "关闭后可以安静地往上翻历史，滚回底部会自动重新打开" [ref=e169] [cursor=pointer]:
+                  - checkbox "自动滚动" [checked] [ref=e170]
+                  - generic [ref=e171]: 自动滚动
+                - button "清屏" [ref=e172] [cursor=pointer]
+              - generic [ref=e173]: 暂无 Master 的日志输出。启动该分片后，这里的输出会实时刷新。
+              - generic [ref=e175]:
+                - textbox "Master 未运行" [disabled] [ref=e176]
+                - button "执行" [disabled] [ref=e177]
+            - generic [ref=e178]:
+              - generic [ref=e179]:
+                - generic [ref=e180]: Caves
+                - generic [ref=e181]: 洞穴世界
+                - generic [ref=e182]: 已连接
+                - generic "关闭后可以安静地往上翻历史，滚回底部会自动重新打开" [ref=e183] [cursor=pointer]:
+                  - checkbox "自动滚动" [checked] [ref=e184]
+                  - generic [ref=e185]: 自动滚动
+                - button "清屏" [ref=e186] [cursor=pointer]
+              - generic [ref=e187]: 暂无 Caves 的日志输出。启动该分片后，这里的输出会实时刷新。
+              - generic [ref=e189]:
+                - textbox "Caves 未运行" [disabled] [ref=e190]
+                - button "执行" [disabled] [ref=e191]

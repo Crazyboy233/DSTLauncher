@@ -6,7 +6,7 @@
 // 任意一个房间点效果都一样。服务器启动时带 -skip_update_server_mods，
 // 只加载不下载，所以启动前必须先把模组更新到位。
 
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import Icon from '@/components/ui/Icon.vue';
 import UiCard from '@/components/ui/UiCard.vue';
@@ -58,6 +58,12 @@ const workshopOpen = ref(false);
 const progress = ref('');
 const updateError = ref('');
 const output = ref([]);
+/** 排队等待下载的模组数量（后端串行消化，不并行） */
+const queuedCount = ref(0);
+/** 当前正在下载的创意工坊模组 ID（供结果列表做内联提示） */
+const downloadingId = ref('');
+/** 进度输出块的 DOM 引用，发起更新后滚动过去 */
+const updateBlock = ref(null);
 let pollTimer = null;
 
 function stopPoll() {
@@ -65,6 +71,11 @@ function stopPoll() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+}
+
+/** 把进度块滚进视野：它渲染在页面顶部，搜索结果一长就看不见了 */
+function scrollToUpdate() {
+  nextTick(() => updateBlock.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
 
 async function pollUpdate() {
@@ -78,9 +89,11 @@ async function pollUpdate() {
   progress.value = st.progress || '';
   updateError.value = st.error || '';
   output.value = st.output || [];
+  queuedCount.value = st.queued || 0;
 
   if (!st.running) {
     stopPoll();
+    downloadingId.value = '';
     // 更新结束后按实际结果汇报，绝不把「没下载到东西」说成成功——
     // 引擎可能在任何阶段静默退出且退出码为 0，只有清点结果才算数
     await load();
@@ -108,22 +121,29 @@ async function startUpdate() {
   const { ok } = await guard(() => modUpdateApi.start(room.id), { success: '模组更新已开始' });
   if (!ok) return;
   updating.value = true;
+  downloadingId.value = '';
   startPoll();
   pollUpdate();
+  scrollToUpdate();
 }
 
-/** 单模组更新：ModItem 已做过确认，这里只负责发起会话 */
+/** 单模组更新：下载中有会话在跑时后端会排队，这里不做 updating 拦截 */
 async function startOne(mod) {
   const room = rooms.current;
-  if (!room || updating.value) return;
-  const { ok } = await guard(
-    () => modUpdateApi.start(room.id, null, mod.id),
-    { success: `已开始更新模组 ${mod.name || mod.id}` },
-  );
+  if (!room) return;
+  const { ok, data } = await guard(() => modUpdateApi.start(room.id, null, mod.id));
   if (!ok) return;
+  // POST 返回当前会话状态：queued > 0 说明这次点击进入了队列而不是立即开跑
+  if (data && data.queued > 0) {
+    toast(`${mod.name || mod.id} 已加入下载队列（第 ${data.queued} 位），完成当前任务后自动开始`);
+  } else {
+    toast(`已开始下载 ${mod.name || mod.id}`);
+  }
   updating.value = true;
+  downloadingId.value = mod.id;
   startPoll();
   pollUpdate();
+  scrollToUpdate();
 }
 
 async function stopUpdate() {
@@ -168,7 +188,10 @@ watch(() => rooms.current, load);
 
     <UiSkeleton v-if="!rooms.loaded" :rows="4" />
     <UiEmpty v-else-if="!rooms.current" icon="package" text="请先在「房间」页新建一个房间" />
-    <UiSkeleton v-else-if="loading" :rows="4" />
+    <!-- 骨架屏只给首屏：后台刷新（每 15 秒的房间轮询触发的 load）不能
+         把整个内容区（含创意工坊搜索结果、更新进度块）拆掉重建，
+         否则表现为整页周期性闪烁、搜索结果周期性消失 -->
+    <UiSkeleton v-else-if="loading && !mods.length" :rows="4" />
     <UiEmpty v-else-if="loadError" icon="alert" :text="'读取模组失败：' + loadError" />
 
     <template v-else>
@@ -184,31 +207,33 @@ watch(() => rooms.current, load);
         点右上角<strong>「更新模组」</strong>补齐后再启动服务器（启动时会做检查）。
       </p>
 
-      <!-- 创意工坊：搜索 / ID 查询，下载走统一更新会话 -->
-      <WorkshopPanel
-        v-if="workshopOpen"
-        :updating="updating"
-        @download="startOne"
-      />
-
-      <div v-if="updating || output.length" class="mod-update">
+      <!-- 进度块放在创意工坊面板上方：搜索结果一长，放下面就会滚出视野 -->
+      <div v-if="updating || output.length" ref="updateBlock" class="mod-update">
         <div class="mod-update-head">
           <b>模组更新</b>
           <UiPill :tone="updating ? 'info' : (updateError ? 'danger' : 'ok')">
             {{ updating ? (progress || '进行中') : (updateError ? '失败' : '完成') }}
           </UiPill>
+          <span v-if="queuedCount" class="field-tip">队列中还有 {{ queuedCount }} 个待下载</span>
           <span class="spacer" />
           <button v-if="updating" class="btn btn-sm" @click="stopUpdate">中止</button>
         </div>
         <pre class="mod-update-log">{{ output.join('\n') }}</pre>
       </div>
 
+      <!-- 创意工坊：搜索 / ID 查询，下载走统一更新会话 -->
+      <WorkshopPanel
+        v-if="workshopOpen"
+        :downloading-id="downloadingId"
+        :progress="progress"
+        @download="startOne"
+      />
+
       <template v-if="mods.length">
         <ModItem
           v-for="m in mods"
           :key="m.id"
           :mod="m"
-          :updating="updating"
           @changed="load"
           @update="startOne"
         />

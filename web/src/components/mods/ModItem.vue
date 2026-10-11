@@ -12,8 +12,6 @@ import { guard, toast } from '@/lib/toast.js';
 
 const props = defineProps({
   mod: { type: Object, required: true },
-  /** 全局更新会话进行中：单模组按钮一并禁用（会话全局唯一） */
-  updating: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['changed', 'update']);
@@ -70,10 +68,11 @@ async function remove() {
 /**
  * 单模组更新：未下载的直接下载；已下载的先删旧文件再重下（强制刷新）。
  * 创意工坊模组才支持，本地模组没有「下载」一说。
+ * 有会话在跑时后端会排队串行下载，这里不需要因「更新中」而禁用。
  * 启动交给父组件（轮询归它管），这里只做确认。
  */
 function updateOne() {
-  if (frozen.value || props.updating) return;
+  if (frozen.value) return;
   if (!props.mod.id.startsWith('workshop-')) {
     toast('本地模组不支持在线更新', 'warn');
     return;
@@ -116,7 +115,7 @@ function updateOne() {
         <button
           v-if="mod.id.startsWith('workshop-')"
           class="btn btn-sm"
-          :disabled="frozen || updating"
+          :disabled="frozen"
           :title="mod.installed ? '删除本地文件并重新下载（强制刷新）' : '从创意工坊下载该模组'"
           @click="updateOne"
         >
