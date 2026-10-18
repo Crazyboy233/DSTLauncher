@@ -39,8 +39,11 @@ func MergeInto(p *Parsed, target *room.Room) *room.Room {
 		MaxSnapshots: src.MaxSnapshots,
 		LANOnly:      src.LANOnly,
 		Offline:      src.Offline,
-		Caves:        src.Caves,
 	}
+
+	// 新建房间：分片定义来自存档（含第三个及更多世界），端口由 Store 分配。
+	// 覆盖房间时下面的分支会整体换成目标房间的分片，保持其 id 与端口不变。
+	out.Shards = append([]room.Shard(nil), src.Shards...)
 
 	// 令牌：存档里带了（且非空）就用存档的，否则保留房间现有的
 	if strings.TrimSpace(p.Token) != "" {

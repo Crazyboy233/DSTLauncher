@@ -87,7 +87,7 @@ const serverTone = computed(() => {
       <UiStat
         label="运行分片"
         :value="`${shardRunning} / ${shardTotal}`"
-        sub="地表与洞穴各自独立进程"
+        sub="每个世界一个独立进程"
         icon="server"
         :tone="shardTone"
       />

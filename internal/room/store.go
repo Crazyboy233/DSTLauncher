@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"dst-windows/internal/config"
 )
 
 // 端口分配区间。四个区间互不重叠，
@@ -38,6 +40,9 @@ type fileFormat struct {
 // 自用场景房间数量是个位数，也没有并发写入，引入数据库得不偿失。
 type Store struct {
 	path string
+	// clusterRoot 是 <root>/<confDir>，为空表示不检查磁盘（单元测试场景）。
+	// 有了它，nextID 才能避开仍留有存档的遗留目录。
+	clusterRoot string
 
 	mu    sync.RWMutex
 	rooms []*Room
@@ -55,6 +60,20 @@ func NewStore(path string) (*Store, error) {
 
 // Path 返回定义文件的绝对路径，供接口展示。
 func (s *Store) Path() string { return s.path }
+
+// SetClusterRoot 绑定集群目录的父目录 <root>/<confDir>。
+//
+// 绑定后 nextID 会避开磁盘上已经存在的 Cluster_<id> 目录。
+// 原因：Delete 只删房间定义、刻意保留磁盘存档（存档是玩家心血），
+// 若新房间复用同一个 ID，DST 会直接加载那个目录里的 save/ 与名单文件，
+// 表现为「新建的房间一开服就进到了以前的存档」。
+//
+// 必须在并发访问 Store 之前（装配阶段）调用。
+func (s *Store) SetClusterRoot(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clusterRoot = dir
+}
 
 func (s *Store) load() error {
 	data, err := os.ReadFile(s.path)
@@ -141,8 +160,15 @@ func (s *Store) Create(r *Room) (*Room, error) {
 
 	r.ID = s.nextID()
 	r.Normalize()
-	// 端口必须在 Normalize 之后分配，否则会被 Normalize 的兜底值覆盖
-	s.allocPorts(r)
+	// 新建房间的端口一律由面板分配：
+	// 前端提交的端口既拿不到全局端口池，也可能与别的房间撞号
+	for i := range r.Shards {
+		r.Shards[i].ServerPort = 0
+		r.Shards[i].MasterServerPort = 0
+		r.Shards[i].AuthenticationPort = 0
+	}
+	r.MasterPort = 0
+	s.allocPorts(r, 0)
 
 	if err := r.Validate(); err != nil {
 		return nil, err
@@ -187,6 +213,8 @@ func (s *Store) Update(r *Room) (*Room, error) {
 	fillMissingShardPorts(r, old)
 
 	r.Normalize()
+	// 新增的分片（前端刚加的）还没有端口，在这里从全局端口池补
+	s.allocPorts(r, r.ID)
 	if err := r.Validate(); err != nil {
 		return nil, err
 	}
@@ -226,25 +254,59 @@ func (s *Store) Delete(id int) error {
 	return s.save()
 }
 
-// nextID 返回未被占用的最小正 ID。调用方必须已持有写锁。
-// 复用空洞而不是简单地 max+1：删掉房间后重建能拿到较小 ID，
-// 目录名也保持紧凑。
+// nextID 返回可用的最小正 ID。调用方必须已持有写锁。
+// 复用空洞而不是 max+1：删掉房间后重建能拿到较小 ID，目录名也保持紧凑。
+//
+// 但空洞必须排除「磁盘上还留着内容的 Cluster_<id>」：删房间不删存档，
+// 复用 ID 会让新房间原地接管旧世界的 save/、adminlist.txt 等文件。
 func (s *Store) nextID() int {
 	used := make(map[int]bool, len(s.rooms))
 	for _, r := range s.rooms {
 		used[r.ID] = true
 	}
 	for id := 1; ; id++ {
-		if !used[id] {
-			return id
+		if used[id] {
+			continue
 		}
+		if s.clusterDirOccupied(id) {
+			continue
+		}
+		return id
 	}
 }
 
-// allocPorts 为新房间在四个区间内各分配一组全局唯一的端口。
-// 无论洞穴是否启用都分配，这样以后启用洞穴时端口依然稳定。
-func (s *Store) allocPorts(r *Room) {
-	used := s.usedPorts(0)
+// clusterDirOccupied 判断磁盘上 Cluster_<id> 是否已有内容。
+// clusterRoot 未绑定时直接返回 false，退化成纯 rooms.json 判重。
+func (s *Store) clusterDirOccupied(id int) bool {
+	if s.clusterRoot == "" {
+		return false
+	}
+	return config.DirHasContent(filepath.Join(s.clusterRoot, config.ClusterName(id)))
+}
+
+// allocPorts 为房间分配端口：已有端口保留，只补 0 值。
+//
+// 四个区间互不重叠，且所有房间共用一个端口池，因此同一台机器上
+// 无论开多少房间、每个房间有多少个分片，端口都不会互相抢占。
+// excludeID 用于编辑场景：跳过房间自身，但自身已占的端口仍要计入，
+// 否则同一个房间里的新分片可能拿到与旧分片相同的端口。
+func (s *Store) allocPorts(r *Room, excludeID int) {
+	used := s.usedPorts(excludeID)
+	for _, sh := range r.Shards {
+		if sh.ServerPort > 0 {
+			used[sh.ServerPort] = true
+		}
+		if sh.MasterServerPort > 0 {
+			used[sh.MasterServerPort] = true
+		}
+		if sh.AuthenticationPort > 0 {
+			used[sh.AuthenticationPort] = true
+		}
+	}
+	if r.MasterPort > 0 {
+		used[r.MasterPort] = true
+	}
+
 	next := func(base int) int {
 		p := base
 		for used[p] {
@@ -254,15 +316,20 @@ func (s *Store) allocPorts(r *Room) {
 		return p
 	}
 
-	r.MasterPort = next(masterPortBase)
-
-	shards := defaultShards()
-	for i := range shards {
-		shards[i].ServerPort = next(serverPortBase)
-		shards[i].MasterServerPort = next(steamMasterPortBase)
-		shards[i].AuthenticationPort = next(steamAuthPortBase)
+	if r.MasterPort == 0 {
+		r.MasterPort = next(masterPortBase)
 	}
-	r.Shards = shards
+	for i := range r.Shards {
+		if r.Shards[i].ServerPort == 0 {
+			r.Shards[i].ServerPort = next(serverPortBase)
+		}
+		if r.Shards[i].MasterServerPort == 0 {
+			r.Shards[i].MasterServerPort = next(steamMasterPortBase)
+		}
+		if r.Shards[i].AuthenticationPort == 0 {
+			r.Shards[i].AuthenticationPort = next(steamAuthPortBase)
+		}
+	}
 }
 
 // usedPorts 汇总所有房间占用的端口。excludeID 用于编辑时跳过自身。

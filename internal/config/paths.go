@@ -17,9 +17,19 @@ import (
 // 曾经的 Bug：manager 用了完整三层路径，而 config.Generate 与 backup 漏掉了
 // <conf_dir> 这一层，导致"服务器读的目录"和"生成配置 / 备份的目录"根本不是同一个。
 
+// ClusterRoot 返回全部集群目录的父目录：<root>/<confDir>。
+func ClusterRoot(root, confDir string) string {
+	return filepath.Join(root, confDir)
+}
+
+// ClusterName 返回集群目录名：Cluster_<id>。
+func ClusterName(clusterID int) string {
+	return fmt.Sprintf("Cluster_%d", clusterID)
+}
+
 // ClusterDir 返回集群根目录：<root>/<confDir>/Cluster_<id>
 func ClusterDir(root, confDir string, clusterID int) string {
-	return filepath.Join(root, confDir, fmt.Sprintf("Cluster_%d", clusterID))
+	return filepath.Join(ClusterRoot(root, confDir), ClusterName(clusterID))
 }
 
 // ShardDir 返回分片目录：<root>/<confDir>/Cluster_<id>/<shard>
@@ -48,11 +58,12 @@ func FileExists(path string) bool {
 //   - 一旦服务器真正加载或生成过世界，save 下就会出现 shardindex / profile /
 //     session/<会话ID>/ 等文件
 func ShardHasSave(shardDir string) bool {
-	return dirHasContent(filepath.Join(shardDir, "save"))
+	return DirHasContent(filepath.Join(shardDir, "save"))
 }
 
-// dirHasContent 递归判断目录下是否存在至少一个非空条目（文件，或含内容的子目录）。
-func dirHasContent(dir string) bool {
+// DirHasContent 递归判断目录下是否存在至少一个非空条目（文件，或含内容的子目录）。
+// 目录不存在或为空时返回 false。
+func DirHasContent(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
@@ -61,7 +72,7 @@ func dirHasContent(dir string) bool {
 		if !e.IsDir() {
 			return true
 		}
-		if dirHasContent(filepath.Join(dir, e.Name())) {
+		if DirHasContent(filepath.Join(dir, e.Name())) {
 			return true
 		}
 	}

@@ -5,7 +5,7 @@ import { computed } from 'vue';
 
 import UiPill from '@/components/ui/UiPill.vue';
 import Icon from '@/components/ui/Icon.vue';
-import { GAME_MODE_LABEL } from '@/lib/format.js';
+import { GAME_MODE_LABEL, SHARD_NAME_LABEL } from '@/lib/format.js';
 
 const props = defineProps({
   room: { type: Object, required: true },
@@ -14,12 +14,13 @@ const props = defineProps({
 
 defineEmits(['select', 'edit', 'remove', 'upload']);
 
-const shardOf = name => (props.room.shards || []).find(s => s.name === name) || {};
-
-const master = computed(() => shardOf('Master'));
-const caves = computed(() => shardOf('Caves'));
+const shards = computed(() => props.room.shards || []);
 const running = computed(() => (props.room.statuses || []).some(s => s.state === 'running'));
 const modeLabel = computed(() => GAME_MODE_LABEL[props.room.gameMode] || props.room.gameMode);
+const enabledCount = computed(() => shards.value.filter(s => !s.disabled).length);
+
+/** 常见分片给友好名（地表 / 洞穴），自定义世界直接显示名字 */
+const shardLabel = s => SHARD_NAME_LABEL[s.name] || s.name;
 
 /** 端口按「游戏端口 / Steam 主端口 / Steam 认证端口」顺序展示 */
 function ports(s) {
@@ -49,18 +50,20 @@ function ports(s) {
         {{ running ? '运行中' : '已停止' }}
       </UiPill>
       <UiPill tone="muted">{{ modeLabel }}</UiPill>
-      <UiPill v-if="!room.caves" tone="muted">仅地表</UiPill>
+      <UiPill v-if="enabledCount <= 1" tone="muted">仅一个世界</UiPill>
       <UiPill v-if="room.needToken" tone="warn">
         <Icon name="key" size="12" />缺令牌
       </UiPill>
     </div>
 
     <div class="port-chips">
-      <span class="chip">
-        <b>地表</b><span>{{ ports(master) }}</span>
-      </span>
-      <span class="chip" :class="{ 'is-off': !room.caves }">
-        <b>洞穴</b><span>{{ room.caves ? ports(caves) : '未启用' }}</span>
+      <span
+        v-for="s in shards"
+        :key="s.name"
+        class="chip"
+        :class="{ 'is-off': s.disabled }"
+      >
+        <b>{{ shardLabel(s) }}</b><span>{{ s.disabled ? '未启用' : ports(s) }}</span>
       </span>
       <span class="chip">
         <b>tick</b><span>{{ room.tickRate }}</span>

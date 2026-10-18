@@ -144,9 +144,6 @@ func (m *Manager) baseArgs(c *Cluster, shard string) []string {
 // 指定的房间与分片只用来确定存档位置，下载内容来自安装级的
 // dedicated_server_mods_setup.lua 与该分片的 modoverrides.lua。
 func (m *Manager) UpdateMods(clusterKey, shard, target string) error {
-	if shard == "" {
-		shard = "Master"
-	}
 	num := ""
 	if target != "" {
 		num = strings.TrimPrefix(target, "workshop-")
@@ -157,6 +154,10 @@ func (m *Manager) UpdateMods(clusterKey, shard, target string) error {
 	c, ok := m.GetCluster(clusterKey)
 	if !ok {
 		return fmt.Errorf("房间不存在: %s", clusterKey)
+	}
+	// 缺省用主分片：更新进程只需要一个已存在的分片目录来定位存档位置
+	if shard == "" {
+		shard = c.MasterShard()
 	}
 	if m.ugcDir == "" {
 		return fmt.Errorf("未配置共享模组目录，无法预更新模组")

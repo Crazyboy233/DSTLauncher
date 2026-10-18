@@ -350,7 +350,7 @@ func stripBOM(s string) string {
 //
 // 涉及的路径分两类，务必区分：
 //   - 存档侧：modoverrides.lua 位于 <root>/<confDir>/Cluster_N/<shard>/，
-//     Master 与 Caves 各一份，启用/禁用需同步写入两个分片
+//     每个启用中的分片各一份（数量不限），启用/禁用需同步写入全部分片
 //   - 游戏侧：模组实体在游戏安装目录，非 UGC 在 <game>/mods，
 //     工坊模组（UGC）在 ugcDir —— 这是一个**跨房间共享**的目录，
 //     由启动参数 -ugc_directory 指给服务器，所有房间与分片读同一份。
@@ -358,7 +358,7 @@ func stripBOM(s string) string {
 //     存 N 份、换房间还得搬文件，因此面板统一走共享布局。
 type Manager struct {
 	clusterDir string   // <root>/<confDir>/Cluster_N
-	shards     []string // Master / Caves
+	shards     []string // 启用中的分片名（数量不限）
 	gameDir    string   // 游戏安装目录
 	modsDir    string   // <game>/mods（非 UGC 模组 + mods_setup.lua）
 	ugcDir     string   // 共享工坊模组目录（-ugc_directory 的值）

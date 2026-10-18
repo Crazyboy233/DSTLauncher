@@ -57,8 +57,15 @@ export const roomApi = {
   meta: () => request('/api/rooms/meta'),
 };
 
-/* ---------- 房间管理员（adminlist.txt） ---------- */
+/* ---------- 存档管理（磁盘上的集群目录） ---------- */
 
+export const savesApi = {
+  /** 返回 { root, items }：root 是存档根目录绝对路径，删之前可据此手动备份 */
+  list: () => request('/api/saves'),
+  remove: cluster => request('/api/saves', { method: 'DELETE', params: { cluster } }),
+};
+
+/* ---------- 房间管理员（adminlist.txt） ---------- */
 export const adminApi = {
   list: roomId => request('/api/admins', { params: { room: roomId } }),
   add: (roomId, kleiId) => request('/api/admins', { method: 'POST', params: { room: roomId }, body: { kleiId } }),
@@ -148,6 +155,12 @@ export const modUpdateApi = {
     return request('/api/mods/update', { method: 'POST', params });
   },
   stop: () => request('/api/mods/update', { method: 'DELETE' }),
+
+  /**
+   * 检查房间启用的工坊模组有没有新版。
+   * 返回 { checked, updates: [{id,name,localTime,remoteTime}], missing }
+   */
+  check: roomId => request('/api/mods/updates', { params: { room: roomId } }),
 };
 
 /* ---------- 创意工坊 ---------- */

@@ -167,20 +167,22 @@ func buildRoom(p *Parsed, maps []map[string]string, scans []shardScan) *room.Roo
 	// 取不到时保持空串（= 无密码），与 DST 的默认行为一致。
 	r.Password = pick(maps, "cluster_password", "server_password")
 
-	// 洞穴是否启用取决于存档里有没有非地表分片
-	r.Caves = false
+	// 分片表：名字、类型、主从、世界 id 都来自存档，端口留给 Store 统一分配。
+	// 这里不能用 room.Defaults() 的两条默认分片，否则存档里的第三个世界会丢。
+	r.Shards = make([]room.Shard, 0, len(scans))
 	for _, sc := range scans {
-		if !sc.IsMaster {
-			r.Caves = true
-			break
-		}
+		r.Shards = append(r.Shards, room.Shard{
+			Name:      sc.Name,
+			WorldType: sc.WorldType,
+			GameID:    sc.GameID,
+			IsMaster:  sc.IsMaster,
+		})
 	}
 
 	// 留给调用方：新建走自动分配，覆盖沿用目标房间
 	r.MasterIP = ""
 	r.MasterPort = 0
 	r.ClusterKey = ""
-	r.Shards = nil
 
 	return r
 }
@@ -235,16 +237,30 @@ func scanShards(clusterDir string, p *Parsed) ([]shardScan, error) {
 			sc.IsMaster = strings.EqualFold(e.Name(), "Master")
 		}
 
-		// 面板只支持 Master / Caves 两个分片，把逻辑名归一化到这两者，
-		// 原始目录名保留在 Dir 里供拷贝使用
-		if sc.IsMaster {
-			sc.Name = "Master"
+		// 世界 id：玩家的传送门按 id 寻址，导入时能沿用就沿用
+		if n, ok := pickInt([]map[string]string{sc.flat}, "id"); ok {
+			sc.GameID = n
+		}
+
+		// 分片名取自 server.ini 的 name，缺失时用目录名。
+		// 不再归一化到 Master/Caves——多层世界里分片叫什么都可以，
+		// 名字同时决定面板里的存档目录与 -shard 参数。
+		if v := pick([]map[string]string{sc.flat}, "name"); strings.TrimSpace(v) != "" {
+			sc.Name = strings.TrimSpace(v)
 		} else {
-			sc.Name = "Caves"
+			sc.Name = e.Name()
 		}
 
 		if ov, src, ok := readOverride(dir); ok {
 			sc.Override, sc.HasOverride, sc.OverrideSrc = ov, true, src
+		}
+		// 世界类型：先按名字猜，存档带了世界配置时以预设为准——
+		// 名字叫 World3 的分片完全可能是洞穴
+		sc.WorldType = room.InferWorldType(sc.Name)
+		if sc.HasOverride {
+			if loc := worldsettings.LocationFromPreset(sc.Override.WorldGenPreset); loc != "" {
+				sc.WorldType = loc
+			}
 		}
 		// 模组配置原样带回去，由 Parse 统一挑选与解析
 		if raw, ok := readText(filepath.Join(dir, "modoverrides.lua")); ok && raw != "" {
@@ -262,12 +278,13 @@ func scanShards(clusterDir string, p *Parsed) ([]shardScan, error) {
 		}
 	}
 	if !hasMaster && len(scans) > 0 {
-		p.warnf("存档里没有标记 is_master 的分片，已按 Master 处理")
+		p.warnf("存档里没有标记 is_master 的分片，已按主分片处理")
 		scans[0].IsMaster = true
-		scans[0].Name = "Master"
+		scans[0].WorldType = worldsettings.LocationForest
 	}
 
-	// 归一化后可能出现重名（两个目录都映射到 Caves），保留带世界数据的那一个
+	// 重名只可能来自存档本身的脏数据（两个目录写了同一个 name），
+	// 保留带世界数据的那一个
 	out := make([]shardScan, 0, len(scans))
 	seen := map[string]int{}
 	for _, sc := range scans {
@@ -277,13 +294,13 @@ func scanShards(clusterDir string, p *Parsed) ([]shardScan, error) {
 			out = append(out, sc)
 			continue
 		}
-		p.warnf("存档里有多个 %s 分片，已保留 %s 并忽略 %s", sc.Name, out[idx].Dir, sc.Dir)
+		p.warnf("存档里有多个同名分片 %s，已保留 %s 并忽略 %s", sc.Name, out[idx].Dir, sc.Dir)
 		if !out[idx].HasSave && sc.HasSave {
 			out[idx] = sc
 		}
 	}
 
-	// Master 排在最前，导入日志读起来才顺
+	// 主分片排在最前，导入日志读起来才顺
 	sort.SliceStable(out, func(i, j int) bool { return out[i].IsMaster && !out[j].IsMaster })
 	return out, nil
 }

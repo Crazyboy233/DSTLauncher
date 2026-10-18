@@ -1,5 +1,5 @@
 <script setup>
-// 世界配置：按分片（Master / Caves）编辑 worldgenoverride.lua。
+// 世界配置：按分片逐个编辑 worldgenoverride.lua（分片数量不限）。
 //
 // 只写 worldgenoverride.lua —— 同目录下的 leveldataoverride.lua 优先级更高，
 // 且按 Klei 在服务器源码里的注释会「完全覆盖已保存的世界数据」，
@@ -23,12 +23,11 @@ import OptionGroupPanel from '@/components/world/OptionGroupPanel.vue';
 import { worldApi } from '@/lib/api.js';
 import { useRoomsStore } from '@/stores/rooms.js';
 import { guard, toast } from '@/lib/toast.js';
+import { SHARD_NAME_LABEL, WORLD_TYPE_LABEL } from '@/lib/format.js';
 
 const rooms = useRoomsStore();
 
-const SHARD_LABEL = { Master: '地表世界', Caves: '洞穴世界' };
-
-const shard = ref('Master');
+const shard = ref('');
 const view = ref(null);
 const loading = ref(false);
 const saving = ref(false);
@@ -51,7 +50,18 @@ const category = ref('settings');
 
 /* ---------- 派生状态 ---------- */
 
-const shardHint = computed(() => SHARD_LABEL[shard.value] || shard.value);
+/** tab 标签：常见分片给中文短名（地表 / 洞穴），自定义世界显示配置里的名字 */
+const shardLabel = name => SHARD_NAME_LABEL[name] || name;
+
+/** 当前分片的世界类型，决定预设与可用选项；来自房间配置，不靠名字猜 */
+const shardType = computed(() => {
+  const list = (rooms.current && rooms.current.shards) || [];
+  const found = list.find(x => x.name === shard.value);
+  return (found && found.worldType) || 'forest';
+});
+
+const shardHint = computed(() =>
+  `${shardLabel(shard.value)} · ${WORLD_TYPE_LABEL[shardType.value] || shardType.value}`);
 
 /** 服务器运行中冻结全部修改：游戏只在启动时读配置，改了也不生效 */
 const frozen = computed(() => rooms.running);
@@ -78,6 +88,20 @@ const dirty = computed(() => changedCount.value > 0 || settingsChanged.value);
 
 const worldgenPresets = computed(() => view.value?.presets?.worldgen || []);
 const settingsPresets = computed(() => view.value?.presets?.settings || []);
+
+/**
+ * 预设与分片类型不一致。
+ *
+ * 引擎只按预设生成世界，既不看分片叫什么，也不看面板里的类型：
+ * 洞穴分片配成 SURVIVAL_TOGETHER 就会长出第二张地表图。
+ * 世界生成不可逆，所以这里必须显式提醒，而不是等玩家下去才发现。
+ */
+const presetMismatch = computed(() => {
+  const p = worldgenPreset.value || '';
+  if (!p) return false;
+  const isCavePreset = p.toUpperCase().includes('CAVE');
+  return (shardType.value === 'cave') !== isCavePreset;
+});
 
 /** 按类别拆分分组 */
 const settingsGroups = computed(() =>
@@ -146,7 +170,7 @@ function applyView(data) {
 }
 
 async function load() {
-  if (!rooms.currentId) {
+  if (!rooms.currentId || !shard.value) {
     view.value = null;
     return;
   }
@@ -160,6 +184,18 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+/**
+ * 切换要编辑的世界。
+ *
+ * 分片名可以由用户自定义（主分片也可能不叫 Master），所以不能硬编码默认值，
+ * 一律以房间当前的启用分片列表为准；列表为空（还没建房间）时什么也不做。
+ */
+function selectShard(name) {
+  if (!name || name === shard.value) return;
+  shard.value = name;
+  load();
 }
 
 async function save() {
@@ -195,17 +231,18 @@ function resetAll() {
 
 /* ---------- 生命周期 ---------- */
 
-watch(shard, load);
 watch(() => rooms.currentId, () => {
-  shard.value = 'Master';
-  load();
+  shard.value = '';
+  selectShard(rooms.shards[0]);
 });
-// 洞穴被关掉后，当前选中的 Caves 会失效
+// 分片被停用或删除后，当前选中的世界会失效，回落到列表第一个
 watch(() => rooms.shards.join(','), () => {
-  if (!rooms.shards.includes(shard.value)) shard.value = rooms.shards[0] || 'Master';
+  if (rooms.shards.includes(shard.value)) return;
+  shard.value = '';
+  selectShard(rooms.shards[0]);
 });
 
-onMounted(load);
+onMounted(() => selectShard(rooms.shards[0]));
 </script>
 
 <template>
@@ -220,9 +257,9 @@ onMounted(load);
           :key="s"
           class="btn btn-sm"
           :class="{ 'btn-primary': s === shard }"
-          @click="shard = s"
+          @click="selectShard(s)"
         >
-          {{ s }}
+          {{ shardLabel(s) }}
         </button>
       </template>
 
@@ -272,6 +309,20 @@ onMounted(load);
             该房间<strong>已生成过世界</strong>：世界生成类配置已冻结——
             这些选项只在生成世界时读取，改了也不会重建已有地图。
             如需调整地形、资源分布等，请新建房间重新生成，或另行导入存档。
+          </span>
+        </div>
+
+        <div v-if="presetMismatch" class="notice">
+          <Icon name="alert" size="16" />
+          <span>
+            世界预设与分片类型不一致：当前预设是 <strong>{{ worldgenPreset || '（未指定）' }}</strong>，
+            而这个分片是 <strong>{{ shardHint }}</strong>。
+            <template v-if="worldGenerated">
+              世界已经生成，改预设不会重建地图——要纠正只能删除该分片的存档后重新生成。
+            </template>
+            <template v-else>
+              现在启动会严格按预设生成，请先把预设改成与该类型匹配的值。
+            </template>
           </span>
         </div>
 

@@ -35,6 +35,7 @@ export const useUiStore = defineStore('ui', () => {
     { key: 'world', label: '世界配置', icon: 'globe' },
     { key: 'mods', label: '模组', icon: 'package' },
     { key: 'backups', label: '备份', icon: 'archive' },
+    { key: 'saves', label: '存档', icon: 'folder' },
     { key: 'config', label: '配置预览', icon: 'fileCode' },
   ];
 

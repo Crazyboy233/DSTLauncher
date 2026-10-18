@@ -124,7 +124,6 @@ func TestParseModernFormat(t *testing.T) {
 		{"MaxSnapshots", r.MaxSnapshots, 20},
 		{"LANOnly", r.LANOnly, true},
 		{"Offline", r.Offline, false},
-		{"Caves", r.Caves, true},
 		// 机器本地字段一律不导入
 		{"MasterIP(不导入)", r.MasterIP, ""},
 		{"MasterPort(不导入)", r.MasterPort, 0},
@@ -139,6 +138,17 @@ func TestParseModernFormat(t *testing.T) {
 		if c.got != c.want {
 			t.Errorf("%s = %v, 期望 %v", c.name, c.got, c.want)
 		}
+	}
+
+	// 分片表：名字、世界类型、主从都来自存档，不再归一化成固定两种
+	if len(r.Shards) != 2 {
+		t.Fatalf("分片数 = %d, 期望 2: %+v", len(r.Shards), r.Shards)
+	}
+	if r.Shards[0].Name != "Master" || !r.Shards[0].IsMaster || r.Shards[0].WorldType != room.WorldTypeForest {
+		t.Errorf("主分片解析错误: %+v", r.Shards[0])
+	}
+	if r.Shards[1].Name != "Caves" || r.Shards[1].IsMaster || r.Shards[1].WorldType != room.WorldTypeCave {
+		t.Errorf("洞穴分片解析错误: %+v", r.Shards[1])
 	}
 
 	// 世界设置应被解析出来（含自定义键）
@@ -270,7 +280,6 @@ func TestParseLegacyFormat(t *testing.T) {
 		// 旧版没有独立的投票踢人开关，跟随 vote_enabled
 		{"VoteKick", r.VoteKick, true},
 		// 只有 Master 一个世界
-		{"Caves", r.Caves, false},
 		// 旧版样例不带 modoverrides.lua
 		{"HasMods", p.HasMods, false},
 		{"HasSave", p.HasSave, false},
@@ -289,11 +298,19 @@ func TestMergeIntoKeepsLocalFields(t *testing.T) {
 		t.Fatalf("Parse 失败: %v", err)
 	}
 
-	// 新建：机器本地字段留空，交给 Store 分配
+	// 新建：机器本地字段留空，交给 Store 分配；分片定义（含世界名/类型）必须带出来
 	fresh := MergeInto(p, nil)
-	if fresh.ID != 0 || fresh.Shards != nil || fresh.ClusterKey != "" || fresh.MasterIP != "" {
-		t.Errorf("新建时机器本地字段应全部留空, got id=%d shards=%v key=%q ip=%q",
-			fresh.ID, fresh.Shards, fresh.ClusterKey, fresh.MasterIP)
+	if fresh.ID != 0 || fresh.ClusterKey != "" || fresh.MasterIP != "" || fresh.MasterPort != 0 {
+		t.Errorf("新建时机器本地字段应全部留空, got id=%d key=%q ip=%q port=%d",
+			fresh.ID, fresh.ClusterKey, fresh.MasterIP, fresh.MasterPort)
+	}
+	if len(fresh.Shards) != 2 || fresh.Shards[0].Name != "Master" || fresh.Shards[1].Name != "Caves" {
+		t.Errorf("新建时应沿用存档的分片定义, got %+v", fresh.Shards)
+	}
+	for _, sh := range fresh.Shards {
+		if sh.ServerPort != 0 || sh.MasterServerPort != 0 || sh.AuthenticationPort != 0 {
+			t.Errorf("新建时分片端口应留空由 Store 分配, got %+v", sh)
+		}
 	}
 
 	// 覆盖：端口 / 密钥 / master_ip / ID 沿用目标房间，玩法配置被存档覆盖

@@ -9,9 +9,12 @@ import ModConfigForm from '@/components/mods/ModConfigForm.vue';
 import { useRoomsStore } from '@/stores/rooms.js';
 import { modApi } from '@/lib/api.js';
 import { guard, toast } from '@/lib/toast.js';
+import { fmtUnix } from '@/lib/format.js';
 
 const props = defineProps({
   mod: { type: Object, required: true },
+  /** 「检查更新」查到的结果：{ id, name, localTime, remoteTime }，无更新时为 null */
+  updateInfo: { type: Object, default: null },
 });
 
 const emit = defineEmits(['changed', 'update']);
@@ -108,6 +111,13 @@ function updateOne() {
       </UiPill>
       <UiPill :tone="mod.installed ? 'muted' : 'warn'">
         {{ mod.installed ? '已下载' : '未下载' }}
+      </UiPill>
+      <UiPill
+        v-if="updateInfo"
+        tone="warn"
+        :title="`本地 ${fmtUnix(updateInfo.localTime)}，工坊 ${fmtUnix(updateInfo.remoteTime)}`"
+      >
+        有新版本
       </UiPill>
 
       <span class="mod-actions">

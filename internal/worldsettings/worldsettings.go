@@ -76,10 +76,18 @@ const (
 	CategorySettings = "settings" // 运行设置：决定世界规则
 )
 
-// 分片名。
+// 分片名。这两个只是约定名，不再是唯一可能的分片——
+// 房间可以有任意多个分片，判断世界类型请用 Location 而不是分片名。
 const (
 	ShardMaster = "Master"
 	ShardCaves  = "Caves"
+)
+
+// 世界类型（游戏内部的世界位置标识）。与 room.WorldType* 取值保持一致，
+// 这样房间配置里的 Shard.WorldType 可以直接当参数传进来。
+const (
+	LocationForest = "forest"
+	LocationCave   = "cave"
 )
 
 var (
@@ -123,23 +131,56 @@ func GeneratedAt() string {
 	return dataset.GeneratedAt
 }
 
-// LocationOf 把分片名映射成游戏内部的世界位置标识。
-func LocationOf(shard string) string {
-	if strings.EqualFold(shard, ShardCaves) {
-		return "cave"
+// NormalizeLocation 把各种写法归一成游戏内部的世界位置标识。
+//
+// 正常路径传的是房间配置里的 WorldType（本就是 forest / cave），
+// 这里额外接受分片名（Master / Caves / 任何含 cave 的自定义名），
+// 供导入存档、旧数据与手工调用兜底。
+func NormalizeLocation(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case LocationCave:
+		return LocationCave
+	case LocationForest, "":
+		return LocationForest
+	case "caves":
+		return LocationCave
+	case "master":
+		return LocationForest
 	}
-	return "forest"
+	if strings.Contains(strings.ToLower(v), "cave") {
+		return LocationCave
+	}
+	return LocationForest
 }
 
-// Groups 返回指定分片、指定类别下可用的分组（已按分片过滤掉不适用的选项）。
+// LocationOf 把分片名映射成游戏内部的世界位置标识。
+// 拿得到房间配置时请优先用 Room.WorldTypeOf，它才是权威来源。
+func LocationOf(shard string) string {
+	return NormalizeLocation(shard)
+}
+
+// LocationFromPreset 从世界预设名反推世界类型，认不出时返回空串。
+// 导入存档时用：名字叫什么都可能，预设（DST_CAVE / SURVIVAL_TOGETHER）才是世界内容的真相。
+func LocationFromPreset(preset string) string {
+	p := strings.ToUpper(strings.TrimSpace(preset))
+	if p == "" {
+		return ""
+	}
+	if strings.Contains(p, "CAVE") {
+		return LocationCave
+	}
+	return LocationForest
+}
+
+// Groups 返回指定世界类型、指定类别下可用的分组（已过滤掉不适用的选项）。
 //
 // 过滤依据是选项自带的 world 字段——它由游戏自己标注，不用维护两份清单。
-// category 传空表示两类都要。
-func Groups(shard, category string) []Group {
+// 第一个参数是世界类型（forest / cave），category 传空表示两类都要。
+func Groups(location, category string) []Group {
 	if err := Load(); err != nil {
 		return nil
 	}
-	loc := LocationOf(shard)
+	loc := NormalizeLocation(location)
 
 	out := make([]Group, 0, len(dataset.Groups))
 	for _, g := range dataset.Groups {
@@ -185,12 +226,12 @@ func appliesTo(o Option, location string) bool {
 	return false
 }
 
-// Presets 返回指定分片、指定类别的预设清单。
-func Presets(shard, category string) []Preset {
+// Presets 返回指定世界类型、指定类别的预设清单。
+func Presets(location, category string) []Preset {
 	if err := Load(); err != nil {
 		return nil
 	}
-	key := LocationOf(shard) + "_" + category
+	key := NormalizeLocation(location) + "_" + category
 	list := dataset.Presets[key]
 	out := make([]Preset, len(list))
 	copy(out, list)

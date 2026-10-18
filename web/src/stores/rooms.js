@@ -49,11 +49,12 @@ export const useRoomsStore = defineStore('rooms', () => {
     return list.value.find(r => r.id === currentId.value) || list.value[0];
   });
 
-  /** 当前房间启用中的分片。 */
+  /** 当前房间启用中的分片（数量不限，由房间配置里的 shards 决定）。 */
   const shards = computed(() => {
     const r = current.value;
     if (!r) return [];
-    return r.caves ? ['Master', 'Caves'] : ['Master'];
+    // disabled 是反向字段：缺省即启用，与后端 Shard.Disabled 的语义一致
+    return (r.shards || []).filter(s => !s.disabled).map(s => s.name);
   });
 
   const running = computed(() =>

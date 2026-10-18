@@ -25,24 +25,42 @@ type Override struct {
 	Overrides      map[string]string `json:"overrides"`
 }
 
-// DefaultPreset 返回某分片的默认预设。
-// Master 与 Caves 的预设不可混用：地表用 SURVIVAL_TOGETHER 一系，洞穴只有 DST_CAVE 一系。
-func DefaultPreset(shard string) string {
-	if strings.EqualFold(shard, ShardCaves) {
+// DefaultPreset 返回某世界类型的默认预设。
+// 地表与洞穴的预设不可混用：地表用 SURVIVAL_TOGETHER 一系，洞穴只有 DST_CAVE 一系。
+// 参数是世界类型（forest / cave），不是分片名。
+func DefaultPreset(location string) string {
+	if NormalizeLocation(location) == LocationCave {
 		return "DST_CAVE"
 	}
 	return "SURVIVAL_TOGETHER"
 }
 
-// NewOverrideFor 返回某分片的初始配置（等同游戏默认）。
-func NewOverrideFor(shard string) *Override {
-	p := DefaultPreset(shard)
+// NewOverrideFor 返回某世界类型的初始配置（等同游戏默认）。
+func NewOverrideFor(location string) *Override {
+	p := DefaultPreset(location)
 	return &Override{
 		Enabled:        true,
 		WorldGenPreset: p,
 		SettingsPreset: p,
 		Overrides:      map[string]string{},
 	}
+}
+
+// NewShardDefault 返回一个分片在**第一次启动之前**应有的世界配置。
+//
+// 为什么不能只给 preset：分片目录里没有 worldgenoverride.lua 时，
+// 引擎一律按地表生成——叫 Caves 的分片会长出第二张地表图，
+// 玩家从落水洞下去看到的还是地面。而部分版本对 preset 的解析并不完整，
+// 所以洞穴分片额外显式给出生成参数，两条路径至少有一条生效。
+//
+// 只在文件不存在时使用；已有配置一律不覆盖。
+func NewShardDefault(location string) *Override {
+	o := NewOverrideFor(location)
+	if NormalizeLocation(location) == LocationCave {
+		o.Overrides["start_location"] = "caves"
+		o.Overrides["task_set"] = "cave_default"
+	}
+	return o
 }
 
 var (
@@ -190,12 +208,16 @@ func FilePath(clusterDir, shard string) string {
 
 // ReadFile 读取某分片的配置。
 // 文件不存在时返回该分片的默认配置，exists 为 false。
-func ReadFile(clusterDir, shard string) (*Override, bool, error) {
+// ReadFile 读取某分片的世界配置。
+//
+// 文件不存在时返回**按世界类型**推出的默认值（exists=false），
+// 而不是按分片名猜——名字可以随便取，类型才是权威。
+func ReadFile(clusterDir, shard, location string) (*Override, bool, error) {
 	path := FilePath(clusterDir, shard)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return NewOverrideFor(shard), false, nil
+			return NewShardDefault(location), false, nil
 		}
 		return nil, false, fmt.Errorf("读取 %s 失败: %w", path, err)
 	}

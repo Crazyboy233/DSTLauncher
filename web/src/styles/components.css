@@ -420,6 +420,34 @@ input[type="checkbox"] {
 .port-box .field:last-child { margin-bottom: 0; }
 .port-box .field-label { font-size: 12px; }
 
+/* 分片编辑器：每个世界一张卡片。
+   名字是存档目录名（保存后锁死），能改的只有类型、端口与启停。 */
+.shard-list { display: flex; flex-direction: column; gap: 10px; }
+.shard-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 13px;
+  background: var(--surface-2);
+  transition: opacity .15s ease;
+}
+/* 停用的分片保留在列表里（端口不回收），但视觉上明显退后 */
+.shard-card.is-off { opacity: .62; }
+.shard-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.shard-name-input { flex: 0 0 150px; width: 150px; font-weight: 500; }
+.shard-type-select { flex: 0 0 112px; width: 112px; }
+.shard-del { margin-left: auto; }
+.shard-ports {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
+  margin-top: 10px;
+}
+.shard-port { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.shard-port > span { font-size: 11px; color: var(--text-muted); }
+.shard-foot { margin-top: 9px; font-size: 11.5px; color: var(--text-muted); }
+.shard-foot code { font-size: 11.5px; }
+.shard-add { align-self: flex-start; }
+
 .notice {
   display: flex;
   gap: 9px;
@@ -1064,6 +1092,22 @@ input[type="radio"] {
 .table .right { text-align: right; white-space: nowrap; }
 
 /* --------------------------------------------------------------------------
+   存档管理
+   -------------------------------------------------------------------------- */
+
+/* 顶部汇总：数量与占用，孤儿存档单独标出来 */
+.save-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.save-summary b { font-weight: 500; color: var(--text-2); }
+.save-orphan { color: var(--warn); }
+
+/* --------------------------------------------------------------------------
    配置预览
    -------------------------------------------------------------------------- */
 
@@ -1277,6 +1321,9 @@ input[type="radio"] {
   .opt-row-icon { width: 56px; height: 56px; }
   .opt-row-icon img { width: 48px; height: 48px; }
   .world-toolbar .input { min-width: 140px; }
+  /* 分片卡片：窄屏下端口单列，名字与类型各占一行 */
+  .shard-ports { grid-template-columns: 1fr; }
+  .shard-name-input, .shard-type-select { flex: 1 1 100%; width: 100%; }
   .room-banner { padding: 7px 14px; }
   .console { height: 280px; }
   /* 窄屏日志面板堆成单列，内边距收紧 */

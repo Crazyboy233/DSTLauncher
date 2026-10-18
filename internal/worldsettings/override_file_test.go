@@ -28,7 +28,7 @@ func TestWriteAndReadFile(t *testing.T) {
 		t.Error("不应生成 leveldataoverride.lua")
 	}
 
-	got, exists, err := ReadFile(clusterDir, ShardCaves)
+	got, exists, err := ReadFile(clusterDir, ShardCaves, LocationCave)
 	if err != nil {
 		t.Fatalf("读取失败: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestWriteAndReadFile(t *testing.T) {
 func TestReadMissingFile(t *testing.T) {
 	clusterDir := t.TempDir()
 
-	got, exists, err := ReadFile(clusterDir, ShardMaster)
+	got, exists, err := ReadFile(clusterDir, ShardMaster, LocationForest)
 	if err != nil {
 		t.Fatalf("缺失文件不应报错: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestShardsAreIsolated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gotMaster, _, err := ReadFile(clusterDir, ShardMaster)
+	gotMaster, _, err := ReadFile(clusterDir, ShardMaster, LocationForest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestShardsAreIsolated(t *testing.T) {
 		t.Error("Master 的配置里混入了 Caves 的项")
 	}
 
-	gotCaves, _, err := ReadFile(clusterDir, ShardCaves)
+	gotCaves, _, err := ReadFile(clusterDir, ShardCaves, LocationCave)
 	if err != nil {
 		t.Fatal(err)
 	}

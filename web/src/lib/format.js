@@ -18,6 +18,13 @@ export function fmtTime(iso) {
   return d.toLocaleString('zh-CN', { hour12: false });
 }
 
+/** Unix 秒转本地可读时间（Steam 接口返回的时间戳都是秒）。 */
+export function fmtUnix(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  return new Date(n * 1000).toLocaleString('zh-CN', { hour12: false });
+}
+
 /** 分片运行状态的中文名。 */
 export const STATE_LABEL = {
   running: '运行中',
@@ -43,6 +50,21 @@ export const TICK_RATE_LABEL = {
 export const LANGUAGE_LABEL = {
   zh: '中文 zh',
   en: 'English',
+};
+
+/**
+ * 世界类型。分片的名字是存档目录名，可以随便取；
+ * 类型才决定世界生成预设与可用设置项，所以 UI 上一律按类型给标签。
+ */
+export const WORLD_TYPE_LABEL = {
+  forest: '地表型',
+  cave: '洞穴型',
+};
+
+/** 常见分片的友好名。自定义分片直接显示原名。 */
+export const SHARD_NAME_LABEL = {
+  Master: '地表',
+  Caves: '洞穴',
 };
 
 /** 进程事件类型 -> 展示用前缀，undefined 表示按普通日志处理。 */

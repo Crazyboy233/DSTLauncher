@@ -7,8 +7,11 @@ Windows 原生《饥荒联机版》(Don't Starve Together) 专用服务器管理
 ## 功能
 
 - **Web 管理面板**：房间管理、启停/重启、控制台命令、实时日志（SSE 流式输出）
+- **多层世界**：一个房间可开任意多个世界（地表 + 洞穴 + 自定义世界），每个世界是独立进程、独立端口，可单独启停
 - **模组管理**：mod 启用/禁用/配置/删除/更新，通过 `-only_update_server_mods` 多轮预下载，所有房间共享一份 mod 目录
+- **模组更新检测**：对比本地记录与创意工坊最新版，直接指出是哪个 mod 有了新版本
 - **存档备份与回滚**：手动备份、一键恢复
+- **存档管理**：盘点磁盘上的全部存档目录，标出对应的房间与孤儿存档，可清理
 - **进程守护 + 崩溃重启**：`cmd.Wait()` 监听退出自动拉起；停止前自动发送 `c_save()` + `c_shutdown()`，避免丢档
 - **房间创建**：世界设置（worldgenoverride 可视化编辑）、管理员名单（adminlist.txt）
 - **存档上传**：导入外部存档整包，自动解析新旧两版 ini 结构、转换 leveldataoverride
@@ -31,16 +34,16 @@ npm install
 npm run build   # 产物输出到 web/dist，编译时嵌入 exe
 
 # 后端（在仓库根目录，要求 web/dist 已存在）
-go build -o dstwin.exe .
+go build -o dst-windows.exe .
 
 # 运行
-./dstwin.exe              # 默认端口 127.0.0.1:16800
-./dstwin.exe -port 8080   # 指定端口
-./dstwin.exe -install     # 仅安装服务器文件后退出
-./dstwin.exe -v           # 显示版本
+./dst-windows.exe              # 默认端口 127.0.0.1:16800
+./dst-windows.exe -port 8080   # 指定端口
+./dst-windows.exe -install     # 仅安装服务器文件后退出
+./dst-windows.exe -v           # 显示版本
 ```
 
-发布 release 只需带上 `dstwin.exe` 一个文件；`dst_save/`、`ugc_mods/`、`logs/`、`panel.json` 首次运行自动生成，SteamCMD 缺失时面板会自动下载。
+发布 release 只需带上 `dst-windows.exe` 一个文件；`dst_save/`、`ugc_mods/`、`logs/`、`panel.json` 首次运行自动生成，SteamCMD 缺失时面板会自动下载。
 
 ### 命令行参数
 
@@ -66,6 +69,7 @@ internal/
   workshop/             创意工坊 mod 下载
   modmgr/               mod 管理：modoverrides.lua、dedicated_server_mods_setup.lua 同步
   saveimport/           外部存档整包导入
+  saves/                存档目录盘点与清理（孤儿存档）
   backup/               存档备份与回滚
   worldsettings/        世界设置（worldgenoverride.lua 生成）
   panelcfg/             panel.json 面板配置
@@ -85,10 +89,14 @@ logs/                   运行日志、mod 更新日志
 
 ## 已知注意事项
 
-- 地面（Master）与洞穴（Caves）是**两个独立进程**，端口必须错开
+- 每个世界（分片）都是**独立进程**，端口必须错开；只开地表时洞穴目录留着也不会启动
 - 启动参数顺序敏感：`-persistent_storage_root <绝对路径> -conf_dir <单段名> -cluster <单段名> -shard <单段名>`，可执行文件工作目录必须是 `bin/`
 - 配置文件（ini/lua）必须 **UTF-8 无 BOM**，否则中文乱码
 - 停止服务器务必走面板的"停止"，停止前会自动保存存档
+
+## 交流与反馈
+
+文档不可能覆盖所有情况。第一次在 Windows 上开服，遇到解决不了的问题，可以加 QQ 群 **1131102486** 询问。
 
 ## 致谢
 

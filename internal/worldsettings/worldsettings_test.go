@@ -223,3 +223,55 @@ func TestOverrideValidate(t *testing.T) {
 		t.Error("含注入字符的配置应被拒绝")
 	}
 }
+
+// 世界类型归一化：正常传 WorldType，历史数据传分片名也要认。
+func TestNormalizeLocation(t *testing.T) {
+	cases := map[string]string{
+		"forest":     LocationForest,
+		"cave":       LocationCave,
+		"Master":     LocationForest,
+		"Caves":      LocationCave,
+		"MyCaves2":   LocationCave,
+		"Underworld": LocationForest,
+		"":           LocationForest,
+	}
+	for in, want := range cases {
+		if got := NormalizeLocation(in); got != want {
+			t.Errorf("NormalizeLocation(%q) = %q, 期望 %q", in, got, want)
+		}
+	}
+}
+
+// 从世界预设反推类型：名字可以是任意值，预设才是世界内容的真相。
+func TestLocationFromPreset(t *testing.T) {
+	cases := map[string]string{
+		"DST_CAVE":          LocationCave,
+		"CAVE":              LocationCave,
+		"SURVIVAL_TOGETHER": LocationForest,
+		"":                  "",
+	}
+	for in, want := range cases {
+		if got := LocationFromPreset(in); got != want {
+			t.Errorf("LocationFromPreset(%q) = %q, 期望 %q", in, got, want)
+		}
+	}
+}
+
+// 自定义分片：用世界类型取预设，不能按分片名判断。
+func TestPresetsByLocation(t *testing.T) {
+	cave := Presets(LocationCave, CategoryWorldGen)
+	forest := Presets(LocationForest, CategoryWorldGen)
+	if len(cave) == 0 || len(forest) == 0 {
+		t.Fatal("预设清单为空")
+	}
+	if DefaultPreset(LocationCave) != "DST_CAVE" {
+		t.Errorf("洞穴默认预设错误: %s", DefaultPreset(LocationCave))
+	}
+	if DefaultPreset(LocationForest) == "DST_CAVE" {
+		t.Error("地表默认预设不能是洞穴预设")
+	}
+	// 名字叫什么都无所谓，只看类型
+	if DefaultPreset("Underworld") != DefaultPreset(LocationForest) {
+		t.Error("未知分片名应回退为地表预设")
+	}
+}

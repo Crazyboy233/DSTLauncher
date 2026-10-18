@@ -16,6 +16,7 @@ import RoomsView from '@/views/RoomsView.vue';
 import WorldView from '@/views/WorldView.vue';
 import ModsView from '@/views/ModsView.vue';
 import BackupsView from '@/views/BackupsView.vue';
+import SavesView from '@/views/SavesView.vue';
 import ConfigView from '@/views/ConfigView.vue';
 
 import { useUiStore } from '@/stores/ui.js';
@@ -30,6 +31,7 @@ const VIEWS = {
   world: WorldView,
   mods: ModsView,
   backups: BackupsView,
+  saves: SavesView,
   config: ConfigView,
 };
 

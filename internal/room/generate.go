@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"dst-windows/internal/config"
+	"dst-windows/internal/worldsettings"
 )
 
 // 本文件负责把房间配置渲染成 DST 真正读取的那几个文件。
@@ -177,6 +178,33 @@ func Generate(root, confDir string, r *Room) error {
 			return fmt.Errorf("写入 %s 失败: %w", path, err)
 		}
 	}
+
+	// 世界预设必须赶在分片第一次启动之前落盘，否则引擎会按地表生成
+	return ensureWorldPresets(root, confDir, r)
+}
+
+// ensureWorldPresets 给还没有世界配置的分片补一份与其类型匹配的默认预设。
+//
+// 这一步不能省。引擎在分片目录里找不到 worldgenoverride.lua 时，会一律按
+// **地表**生成世界——名叫 Caves 的分片于是长出第二张地表图，玩家从主人世界的
+// 落水洞下去看到的还是地面。世界生成不可逆，事后再补只能重新生成世界。
+//
+// 已有文件一律不碰：那可能是用户在「世界配置」页逐项调过的设置。
+func ensureWorldPresets(root, confDir string, r *Room) error {
+	clusterDir := config.ClusterDir(root, confDir, r.ID)
+	for _, name := range r.ShardNames() {
+		s, ok := r.Shard(name)
+		if !ok {
+			continue
+		}
+		path := filepath.Join(config.ShardDir(root, confDir, r.ID, name), worldsettings.OverrideFileName)
+		if config.FileExists(path) {
+			continue
+		}
+		if err := worldsettings.WriteFile(clusterDir, name, worldsettings.NewShardDefault(s.WorldType)); err != nil {
+			return fmt.Errorf("写入 %s 的世界预设失败: %w", name, err)
+		}
+	}
 	return nil
 }
 
@@ -206,6 +234,18 @@ func (r *Room) ExistsSave(root, confDir string) bool {
 		}
 	}
 	return false
+}
+
+// ShardHasSave 判断某个分片自己是否已经生成过世界。
+//
+// 世界页必须按分片判断：同一个房间里，Master 可能早就跑过几百天，
+// 而刚加的第三个世界还是一张白纸——用房间级结论会把这个新世界的
+// 生成选项一起冻结，用户连地形都没法配。
+func (r *Room) ShardHasSave(root, confDir, shard string) bool {
+	if _, ok := r.Shard(shard); !ok {
+		return false
+	}
+	return config.ShardHasSave(config.ShardDir(root, confDir, r.ID, shard))
 }
 
 // b 把布尔值渲染成 DST 认识的 true/false。

@@ -43,6 +43,7 @@ type Cluster struct {
 	Name       string               `json:"name"`       // 房间名，仅用于展示
 	ConfDir    string               `json:"confDir"`    // -conf_dir
 	Shards     []string             `json:"shards"`     // 启用中的分片名
+	Master     string               `json:"master"`     // 主分片名
 	Ports      map[string]ShardPort `json:"ports"`      // 分片名 -> 端口组
 	MasterPort int                  `json:"masterPort"` // cluster.ini [SHARD] master_port
 }
@@ -68,6 +69,7 @@ func NewCluster(r *room.Room) *Cluster {
 		Name:       r.Name,
 		ConfDir:    ConfDir,
 		Shards:     r.ShardNames(),
+		Master:     r.MasterShard(),
 		Ports:      ports,
 		MasterPort: r.MasterPort,
 	}
@@ -76,16 +78,32 @@ func NewCluster(r *room.Room) *Cluster {
 // ConfDir 是 -conf_dir 的固定取值，所有房间共用同一层命名空间目录。
 const ConfDir = "DST"
 
-// port 返回分片端口，缺失时退化为一组默认值，避免启动参数里出现 0。
+// port 返回分片端口，缺失时按分片在集群中的序号给一组兜底值，
+// 避免启动参数里出现 0。分片数量不限，兜底值按序展开即可。
 func (c *Cluster) port(shard string) ShardPort {
 	if p, ok := c.Ports[shard]; ok && p.ServerPort > 0 {
 		return p
 	}
-	base := 11000
-	if shard == "Caves" {
-		base = 11001
+	idx := 0
+	for i, n := range c.Shards {
+		if n == shard {
+			idx = i
+			break
+		}
 	}
+	base := 11000 + idx
 	return ShardPort{ServerPort: base, MasterServerPort: base + 20000, AuthenticationPort: base + 30000}
+}
+
+// MasterShard 返回主分片名，供日志、控制台命令、模组更新等场景兜底。
+func (c *Cluster) MasterShard() string {
+	if c.Master != "" {
+		return c.Master
+	}
+	if len(c.Shards) > 0 {
+		return c.Shards[0]
+	}
+	return "Master"
 }
 
 // State 表示分片的运行状态。
@@ -642,24 +660,39 @@ func (m *Manager) getProcess(clusterKey, shard string) (*process, bool) {
 // Stop 优雅停止集群的所有分片。
 // 流程：c_save() → 等待落盘 → c_shutdown() → 超时才强制 Kill。
 // 严禁跳过 c_save 直接 Kill，否则会丢失当前周期的存档进度。
+//
+// 停止范围 = 集群定义里的分片 ∪ 进程表里的残留分片。
+// 后者的必要性：房间配置被改过之后（停用或删除某个世界），
+// 那个分片已经不在 Shards 里，但进程还在跑，只按定义停会留下孤儿。
 func (m *Manager) Stop(clusterKey string, timeout time.Duration) error {
-	m.mu.RLock()
-	c, ok := m.clusters[clusterKey]
-	m.mu.RUnlock()
-	if !ok {
-		// 集群已注销时仍尝试停掉残留进程，避免留下孤儿
-		for _, sh := range []string{"Master", "Caves"} {
-			_ = m.StopShard(clusterKey, sh, timeout)
-		}
-		return nil
-	}
+	names := make(map[string]bool)
 
-	for _, shard := range c.Shards {
-		if err := m.StopShard(clusterKey, shard, timeout); err != nil {
-			return err
+	m.mu.RLock()
+	if c, ok := m.clusters[clusterKey]; ok {
+		for _, s := range c.Shards {
+			names[s] = true
 		}
 	}
-	return nil
+	for _, p := range m.procs {
+		if p.cluster.Key() == clusterKey {
+			names[p.shard] = true
+		}
+	}
+	m.mu.RUnlock()
+
+	shards := make([]string, 0, len(names))
+	for n := range names {
+		shards = append(shards, n)
+	}
+	sort.Strings(shards)
+
+	var firstErr error
+	for _, shard := range shards {
+		if err := m.StopShard(clusterKey, shard, timeout); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // StopShard 优雅停止单个分片。

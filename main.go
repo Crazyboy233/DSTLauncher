@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"dst-windows/internal/config"
 	"dst-windows/internal/panelcfg"
 	"dst-windows/internal/room"
 	"dst-windows/internal/server"
@@ -170,6 +171,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("加载房间定义失败: %v", err)
 	}
+	// 让 ID 分配能看见磁盘上的遗留目录：删除房间会保留存档，
+	// 新房间绝不能复用那个 ID，否则会直接续上旧世界
+	rooms.SetClusterRoot(config.ClusterRoot(rootDir, server.ConfDir))
 
 	// 首次运行自动建一个房间，让面板一打开就有东西可管
 	if len(rooms.List()) == 0 {

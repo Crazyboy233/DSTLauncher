@@ -20,6 +20,7 @@ import (
 	"dst-windows/internal/panelcfg"
 	"dst-windows/internal/room"
 	"dst-windows/internal/saveimport"
+	"dst-windows/internal/saves"
 	"dst-windows/internal/server"
 	"dst-windows/internal/steamcmd"
 	"dst-windows/internal/workshop"
@@ -115,6 +116,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/mods/schema", s.handleModSchema)
 	mux.HandleFunc("/api/mods/delete", s.handleModDelete)
 	mux.HandleFunc("/api/mods/update", s.handleModsUpdate)
+	mux.HandleFunc("/api/mods/updates", s.handleModUpdates)
 
 	// 创意工坊（搜索 / 详情 / API Key 设置）
 	mux.HandleFunc("/api/workshop/details", s.handleWorkshopDetails)
@@ -133,6 +135,9 @@ func (s *Server) Handler() http.Handler {
 
 	// 存档上传（外部存档整包 -> 房间）
 	mux.HandleFunc("/api/saves/upload", s.handleSaveUpload)
+
+	// 存档管理（磁盘上的集群目录盘点 / 清理）
+	mux.HandleFunc("/api/saves", s.handleSaveArchives)
 
 	// 生成结果预览
 	mux.HandleFunc("/api/config", s.handleConfig)
@@ -485,10 +490,11 @@ func (s *Server) handleCmd(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, nil, fmt.Errorf("命令不能为空"))
 		return
 	}
-	if shard == "" {
-		shard = "Master"
-	}
 	s.withRoom(w, r, func(rm *room.Room) error {
+		// 缺省发往主分片：分片名不再固定是 Master
+		if shard == "" {
+			shard = rm.MasterShard()
+		}
 		return s.mgr.SendCmd(rm.Key(), shard, cmd)
 	})
 }
@@ -507,16 +513,16 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 			n = i
 		}
 	}
-	lines, err := s.mgr.ReadLog(rm.Key(), shardOf(r), n)
+	lines, err := s.mgr.ReadLog(rm.Key(), shardOf(r, rm), n)
 	respond(w, 200, lines, err)
 }
 
-// shardOf 读取分片参数，缺省为 Master。
-func shardOf(r *http.Request) string {
+// shardOf 读取分片参数，缺省为主分片。
+func shardOf(r *http.Request, rm *room.Room) string {
 	if s := query(r, "shard"); s != "" {
 		return s
 	}
-	return "Master"
+	return rm.MasterShard()
 }
 
 // matchEvent 判断事件是否命中订阅者的过滤条件。
@@ -651,6 +657,127 @@ func (s *Server) modsFor(rm *room.Room) *modmgr.Manager {
 // SyncModsSetup 供面板启动时重算安装级的模组下载清单。
 // 面板关闭期间房间配置可能被手工改动过，启动时按所有房间重算一次并集最稳妥。
 func (s *Server) SyncModsSetup() { s.syncModsSetup() }
+
+// ---- 模组更新检测 ----
+
+// modUpdateView 是一个「本地有旧版」的工坊模组。
+type modUpdateView struct {
+	ID         string `json:"id"`   // workshop-<数字>
+	Name       string `json:"name"` // 取自 modinfo.lua，读不到时为空
+	LocalTime  int64  `json:"localTime"`
+	RemoteTime int64  `json:"remoteTime"`
+}
+
+// handleModUpdates 检查当前房间启用的工坊模组有没有新版。
+//
+// 客户端提示「服务器有旧版本 mod」的根因就在这里：客户端订阅的是工坊最新版，
+// 服务器本地还是旧版。判据用 acf 里记录的 timeupdated 对比远端 time_updated，
+// 不依赖 modinfo.lua 的 version 字段——那是作者手填的，很多人根本不改。
+func (s *Server) handleModUpdates(w http.ResponseWriter, r *http.Request) {
+	rm, err := s.roomByID(r)
+	if err != nil {
+		respond(w, 200, nil, err)
+		return
+	}
+
+	mods := s.modsFor(rm)
+	o, err := mods.LoadOverrides()
+	if err != nil {
+		respond(w, 200, nil, err)
+		return
+	}
+
+	// 只查「已启用 + 工坊来源」的模组：本地自制 mod 没有远端可比
+	ids := make([]string, 0, len(o.Order))
+	seen := make(map[string]bool, len(o.Order))
+	addID := func(id string) {
+		if seen[id] || !strings.HasPrefix(id, "workshop-") {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, strings.TrimPrefix(id, "workshop-"))
+	}
+	for _, id := range o.Order {
+		if o.Enabled[id] {
+			addID(id)
+		}
+	}
+	// Order 是写入顺序，可能漏掉人工编辑过的条目，再扫一遍 Enabled 兜底
+	for id, on := range o.Enabled {
+		if on {
+			addID(id)
+		}
+	}
+
+	if len(ids) == 0 {
+		respond(w, 200, map[string]interface{}{
+			"checked":      0,
+			"updates":      []modUpdateView{},
+			"missing":      []string{},
+			"notInstalled": []string{},
+		}, nil)
+		return
+	}
+
+	local, err := workshop.LoadInstalled(s.ugcDir)
+	if err != nil {
+		respond(w, 200, nil, err)
+		return
+	}
+
+	items, err := workshop.Details(ids)
+	if err != nil {
+		respond(w, 200, nil, err)
+		return
+	}
+	byID := make(map[string]workshop.Item, len(items))
+	for _, it := range items {
+		byID[it.ID] = it
+	}
+
+	updates := make([]modUpdateView, 0)
+	missing := make([]string, 0)
+	notInstalled := make([]string, 0)
+	installed, _ := mods.InstalledMods()
+	for _, id := range ids {
+		key := "workshop-" + id
+		if !installed[key] {
+			// 已启用但本地没有文件：不需要比版本，直接下载
+			notInstalled = append(notInstalled, key)
+		}
+
+		it, ok := byID[id]
+		if !ok {
+			// 工坊查不到：下架、ID 写错，或者远端只回了一部分
+			missing = append(missing, key)
+			continue
+		}
+		loc := local[id]
+		if loc.TimeUpdated <= 0 {
+			// acf 里没有记录（模组是手工拷进来的），无从判断新旧
+			continue
+		}
+		if it.TimeUpdated > loc.TimeUpdated {
+			name, _ := mods.ModInfo(key)
+			updates = append(updates, modUpdateView{
+				ID:         key,
+				Name:       name,
+				LocalTime:  loc.TimeUpdated,
+				RemoteTime: it.TimeUpdated,
+			})
+		}
+	}
+
+	// 最近更新的排前面：最可能是客户端点名的那个
+	sort.Slice(updates, func(i, j int) bool { return updates[i].RemoteTime > updates[j].RemoteTime })
+
+	respond(w, 200, map[string]interface{}{
+		"checked":      len(ids),
+		"updates":      updates,
+		"missing":      missing,
+		"notInstalled": notInstalled,
+	}, nil)
+}
 
 // ---- 创意工坊（搜索 / 详情） ----
 
@@ -1053,6 +1180,70 @@ type saveImportSummary struct {
 	ModsMissing []string `json:"modsMissing"`
 	Warnings    []string `json:"warnings"`
 	Notes       []string `json:"notes"`
+}
+
+// ---- 存档管理 ----
+
+// runningClusters 汇总「有进程在跑」的集群标识。
+func (s *Server) runningClusters() map[string]bool {
+	out := make(map[string]bool)
+	for _, st := range s.mgr.Status("") {
+		switch st.State {
+		case "running", "starting", "stopping":
+			out[st.Cluster] = true
+		}
+	}
+	return out
+}
+
+// handleSaveArchives 盘点 / 清理磁盘上的集群存档目录。
+//
+// 删除房间只删定义，存档目录会留下——这里给这些目录一个出口。
+// 删除是物理删除、不可恢复，因此只允许删「已经没有房间认领」的目录：
+// 房间还在却想删存档属于误操作高发场景，必须先删房间再来。
+func (s *Server) handleSaveArchives(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		list, err := saves.Scan(s.rootDir, s.confDir, s.rooms.List(), s.runningClusters())
+		// 带上根目录绝对路径：孤儿存档删了就没了，界面要告诉用户
+		// 想保留的话该去哪儿手动拷走。
+		respond(w, 200, map[string]interface{}{
+			"root":  config.ClusterRoot(s.rootDir, s.confDir),
+			"items": list,
+		}, err)
+
+	case http.MethodDelete:
+		cluster := strings.TrimSpace(query(r, "cluster"))
+		if cluster == "" {
+			respond(w, 200, nil, fmt.Errorf("缺少存档目录名"))
+			return
+		}
+		id, ok := saves.ParseClusterID(cluster)
+		if !ok {
+			respond(w, 200, nil, fmt.Errorf("非法的存档目录名: %s", cluster))
+			return
+		}
+		// 房间还在：先删房间。运行中的房间一定属于这种情况，也会被这条拦住。
+		for _, rm := range s.rooms.List() {
+			if rm.ID == id {
+				respond(w, 200, nil, fmt.Errorf(
+					"「%s」仍是面板里的房间，请先在房间页删除房间，存档才会变成可清理的孤儿存档", rm.Name))
+				return
+			}
+		}
+		if s.runningClusters()[cluster] {
+			respond(w, 200, nil, fmt.Errorf("该存档仍被运行中的进程占用，请先停止服务器"))
+			return
+		}
+		if err := saves.Delete(s.rootDir, s.confDir, cluster); err != nil {
+			respond(w, 200, nil, err)
+			return
+		}
+		respond(w, 200, map[string]interface{}{"cluster": cluster}, nil)
+
+	default:
+		respond(w, 200, nil, fmt.Errorf("不支持的方法: %s", r.Method))
+	}
 }
 
 // handleSaveUpload 处理外部存档整包的上传。
@@ -1463,7 +1654,7 @@ func (s *Server) handleWorldConfig(w http.ResponseWriter, r *http.Request) {
 
 	shard := query(r, "shard")
 	if shard == "" {
-		shard = worldsettings.ShardMaster
+		shard = rm.MasterShard()
 	}
 	if !s.shardEnabled(rm, shard) {
 		respond(w, 200, nil, fmt.Errorf("房间未启用分片 %s", shard))
@@ -1476,23 +1667,26 @@ func (s *Server) handleWorldConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clusterDir := rm.ClusterDir(s.rootDir, s.confDir)
-	ov, exists, err := worldsettings.ReadFile(clusterDir, shard)
+	loc := rm.WorldTypeOf(shard)
+	ov, exists, err := worldsettings.ReadFile(clusterDir, shard, loc)
 	if err != nil {
 		respond(w, 200, nil, err)
 		return
 	}
 
+	// 预设与可选项按「世界类型」过滤，不按分片名：
+	// 第三个世界叫什么都行，是 forest 还是 cave 只看房间配置里的 WorldType
 	respond(w, 200, WorldConfigView{
 		Shard:   shard,
 		File:    worldsettings.FilePath(clusterDir, shard),
 		Exists:  exists,
-		HasSave: rm.ExistsSave(s.rootDir, s.confDir),
+		HasSave: rm.ShardHasSave(s.rootDir, s.confDir, shard),
 		Config:  ov,
 		Presets: map[string][]worldsettings.Preset{
-			worldsettings.CategoryWorldGen: worldsettings.Presets(shard, worldsettings.CategoryWorldGen),
-			worldsettings.CategorySettings: worldsettings.Presets(shard, worldsettings.CategorySettings),
+			worldsettings.CategoryWorldGen: worldsettings.Presets(loc, worldsettings.CategoryWorldGen),
+			worldsettings.CategorySettings: worldsettings.Presets(loc, worldsettings.CategorySettings),
 		},
-		Groups:      worldsettings.Groups(shard, ""),
+		Groups:      worldsettings.Groups(loc, ""),
 		GameVersion: worldsettings.Version(),
 		GeneratedAt: worldsettings.GeneratedAt(),
 	}, nil)

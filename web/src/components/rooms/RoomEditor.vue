@@ -11,7 +11,7 @@ import UiCard from '@/components/ui/UiCard.vue';
 import UiField from '@/components/ui/UiField.vue';
 import UiSwitch from '@/components/ui/UiSwitch.vue';
 import Icon from '@/components/ui/Icon.vue';
-import PortBoxes from '@/components/rooms/PortBoxes.vue';
+import ShardEditor from '@/components/rooms/ShardEditor.vue';
 import { useRoomsStore } from '@/stores/rooms.js';
 import { guard, toast } from '@/lib/toast.js';
 import { GAME_MODE_LABEL, TICK_RATE_LABEL, LANGUAGE_LABEL } from '@/lib/format.js';
@@ -27,14 +27,36 @@ const emit = defineEmits(['close', 'saved']);
 const rooms = useRoomsStore();
 const isNew = computed(() => !props.room);
 
-function blankShard(name, isMaster, gameId) {
-  return { name, isMaster, gameId, serverPort: null, masterServerPort: null, authenticationPort: null };
+/** 把后端的分片对象补齐成表单需要的形状（端口 null 表示「待分配」）。 */
+function normalizeShard(s, i) {
+  return {
+    name: s.name || `World${i + 1}`,
+    worldType: s.worldType || 'forest',
+    isMaster: !!s.isMaster,
+    disabled: !!s.disabled,
+    gameId: s.gameId || 0,
+    serverPort: s.serverPort ?? null,
+    masterServerPort: s.masterServerPort ?? null,
+    authenticationPort: s.authenticationPort ?? null,
+    isNew: false,
+  };
+}
+
+/**
+ * 分片初值：已有房间用房间配置，新建房间用后端的默认值（Master + Caves）。
+ * 两个分片都要保留——停用的分片端口也不会被回收，之后再启用不必重新分配。
+ */
+function initialShards(src, d) {
+  const list = (src.shards && src.shards.length) ? src.shards : (d.shards || []);
+  if (!list.length) {
+    return [normalizeShard({ name: 'Master', worldType: 'forest', isMaster: true, gameId: 1 })];
+  }
+  return list.map(normalizeShard);
 }
 
 function buildForm() {
   const d = (props.meta && props.meta.defaults) || {};
   const src = props.room || {};
-  const pick = name => (src.shards || []).find(s => s.name === name) || {};
 
   return {
     id: src.id || 0,
@@ -56,16 +78,10 @@ function buildForm() {
     pauseEmpty: src.pauseEmpty ?? true,
     voteEnabled: src.voteEnabled ?? true,
     voteKick: src.voteKick ?? true,
-    caves: src.caves ?? true,
     lanOnly: src.lanOnly ?? false,
     offline: src.offline ?? false,
 
-    // 两个分片都要保留：洞穴停用时端口也不会被回收，
-    // 之后再启用不需要重新分配
-    shards: [
-      { ...blankShard('Master', true, 1), ...pick('Master') },
-      { ...blankShard('Caves', false, 2), ...pick('Caves') },
-    ],
+    shards: initialShards(src, d),
   };
 }
 
@@ -100,22 +116,21 @@ async function save() {
     pauseEmpty: form.pauseEmpty,
     voteEnabled: form.voteEnabled,
     voteKick: form.voteKick,
-    caves: form.caves,
     lanOnly: form.lanOnly,
     offline: form.offline,
-  };
 
-  // 新建时不提交端口，交给后端统一分配，避免与已有房间撞号
-  if (!isNew.value) {
-    payload.shards = form.shards.map((s, i) => ({
-      name: s.name,
-      gameId: i + 1,
-      isMaster: s.name === 'Master',
+    // 分片：名字/类型/启停/世界 id 由用户决定，端口留 0 表示交给后端统一分配
+    shards: form.shards.map(s => ({
+      name: s.name.trim(),
+      worldType: s.worldType,
+      isMaster: s.isMaster,
+      disabled: s.disabled,
+      gameId: s.gameId || 0,
       serverPort: toNum(s.serverPort, 0),
       masterServerPort: toNum(s.masterServerPort, 0),
       authenticationPort: toNum(s.authenticationPort, 0),
-    }));
-  }
+    })),
+  };
 
   const { ok, data } = await guard(() =>
     isNew.value ? rooms.create(payload) : rooms.update(payload));
@@ -142,7 +157,6 @@ async function save() {
         避免与已有房间冲突；创建后可在编辑页调整。
       </span>
     </div>
-
     <section class="form-section">
       <h3>基本信息</h3>
       <div class="form-grid">
@@ -215,19 +229,23 @@ async function save() {
         <UiSwitch v-model="form.pauseEmpty" label="无人时暂停" />
         <UiSwitch v-model="form.voteEnabled" label="投票" />
         <UiSwitch v-model="form.voteKick" label="投票踢人" />
-        <UiSwitch v-model="form.caves" label="启用洞穴" />
         <UiSwitch v-model="form.lanOnly" label="仅局域网" />
         <UiSwitch v-model="form.offline" label="离线模式" />
       </div>
     </section>
 
     <section class="form-section">
-      <h3>分片与端口</h3>
-      <PortBoxes :shards="form.shards" :caves-enabled="form.caves" />
+      <h3>世界（分片）</h3>
+      <ShardEditor v-model:shards="form.shards" :room-is-new="isNew" />
       <p class="field-tip">
-        {{ isNew
-          ? '新建时留空即可，保存后由系统填好实际端口。'
-          : '三个端口都必须全局唯一；改动后需重启该房间才生效。' }}
+        每个世界都是一个独立进程，各占一份 CPU 与内存（空载约 600MB 起）。
+        端口留空表示自动分配；改动后需重启该房间才生效。
+      </p>
+      <p class="field-tip">
+        原版只有洞穴有落水洞入口。新增的地表型世界要自行放置传送门，
+        可在游戏控制台执行
+        <code>c_spawn('migration_portal').components.worldmigrator:SetDestinationWorld(世界ID, true)</code>，
+        世界 ID 见上方各分片。
       </p>
     </section>
 

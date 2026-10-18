@@ -50,6 +50,26 @@ async function load() {
   }
 }
 
+/* ---------- 更新检查 ---------- */
+
+const checking = ref(false);
+/** { checked, updates, missing }；null 表示还没查过 */
+const checkResult = ref(null);
+
+/** 有更新的模组，按 id 索引，供列表项打标 */
+const updateMap = computed(() => {
+  const map = {};
+  for (const u of (checkResult.value && checkResult.value.updates) || []) {
+    map[u.id] = u;
+  }
+  return map;
+});
+
+const updateNames = computed(() =>
+  ((checkResult.value && checkResult.value.updates) || [])
+    .map(u => u.name || u.id)
+    .join('、'));
+
 /* ---------- 模组预更新 ---------- */
 
 const updating = ref(false);
@@ -115,11 +135,51 @@ function startPoll() {
   pollTimer = setInterval(pollUpdate, 2000);
 }
 
-async function startUpdate() {
+/**
+ * 一键更新：先检查已启用的模组，再把需要处理的加入下载队列。
+ *
+ * 需要处理的有两类：
+ *   - 本地有旧版（acf 记录的版本时间落后于工坊）→ 删旧文件重下
+ *   - 已启用但本地根本没有 → 直接下载
+ * 逐个发单模组请求，后端会串行排队，不会多个引擎进程抢写共享目录。
+ */
+async function updateAll() {
   const room = rooms.current;
-  if (!room || updating.value) return;
-  const { ok } = await guard(() => modUpdateApi.start(room.id), { success: '模组更新已开始' });
-  if (!ok) return;
+  if (!room || updating.value || checking.value) return;
+
+  checking.value = true;
+  let result;
+  try {
+    result = await modUpdateApi.check(room.id);
+    checkResult.value = result;
+  } catch (err) {
+    toast('检查更新失败：' + err.message, 'err');
+    return;
+  } finally {
+    checking.value = false;
+  }
+
+  const todo = new Set();
+  for (const u of result.updates || []) todo.add(u.id);
+  for (const id of result.notInstalled || []) todo.add(id);
+
+  if (!todo.size) {
+    toast('已启用的模组都是最新版，无需更新');
+    return;
+  }
+
+  let queued = 0;
+  for (const id of todo) {
+    try {
+      await modUpdateApi.start(room.id, null, id);
+      queued += 1;
+    } catch (err) {
+      toast(`${id} 加入更新队列失败：${err.message}`, 'err');
+    }
+  }
+  if (!queued) return;
+
+  toast(`已开始更新 ${queued} 个模组`);
   updating.value = true;
   downloadingId.value = '';
   startPoll();
@@ -160,7 +220,10 @@ onUnmounted(stopPoll);
 // 用 current 而不是 currentId 做触发：刷新页面时 currentId 从 localStorage
 // 恢复、值不变，watch 不会触发，列表就一直空着；而 current 要等房间列表
 // 加载完才从 null 变成房间对象，正好在数据就绪时拉一次模组列表
-watch(() => rooms.current, load);
+watch(() => rooms.current, () => {
+  checkResult.value = null;
+  load();
+});
 </script>
 
 <template>
@@ -170,10 +233,11 @@ watch(() => rooms.current, load);
     <template #actions>
       <button
         class="btn btn-sm btn-primary"
-        :disabled="frozen || !rooms.current || updating"
-        @click="startUpdate"
+        :disabled="frozen || !rooms.current || updating || checking"
+        title="先检查已启用的模组，再把有新版本、未下载的模组下载下来"
+        @click="updateAll"
       >
-        <Icon name="download" size="14" />{{ updating ? '更新中…' : '更新模组' }}
+        <Icon name="download" size="14" />{{ updating ? '更新中…' : (checking ? '检查中…' : '更新模组') }}
       </button>
       <button
         class="btn btn-sm"
@@ -207,6 +271,33 @@ watch(() => rooms.current, load);
         点右上角<strong>「更新模组」</strong>补齐后再启动服务器（启动时会做检查）。
       </p>
 
+      <!-- 检查结果：明确指出是哪个模组旧了，客户端只会笼统提示「有旧版本 mod」 -->
+      <div v-if="checkResult" class="notice" style="margin-bottom: 14px">
+        <Icon name="info" size="16" />
+        <span v-if="checkResult.updates.length">
+          已检查 {{ checkResult.checked }} 个工坊模组，
+          <strong>{{ checkResult.updates.length }} 个有新版本</strong>：{{ updateNames }}。
+          已加入更新队列，结果见下方进度。
+        </span>
+        <span v-else>
+          已检查 {{ checkResult.checked }} 个工坊模组，全部是最新版。
+        </span>
+      </div>
+      <p
+        v-if="checkResult && (checkResult.notInstalled || []).length"
+        class="field-tip"
+        style="margin-bottom: 14px"
+      >
+        另有 {{ (checkResult.notInstalled || []).length }} 个已启用但未下载的模组，已一并加入队列。
+      </p>
+      <p
+        v-if="checkResult && (checkResult.missing || []).length"
+        class="field-tip"
+        style="margin-bottom: 14px"
+      >
+        工坊查不到以下模组（可能已下架或 ID 有误）：{{ (checkResult.missing || []).join('、') }}
+      </p>
+
       <!-- 进度块放在创意工坊面板上方：搜索结果一长，放下面就会滚出视野 -->
       <div v-if="updating || output.length" ref="updateBlock" class="mod-update">
         <div class="mod-update-head">
@@ -234,6 +325,7 @@ watch(() => rooms.current, load);
           v-for="m in mods"
           :key="m.id"
           :mod="m"
+          :update-info="updateMap[m.id] || null"
           @changed="load"
           @update="startOne"
         />

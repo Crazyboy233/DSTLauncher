@@ -40,9 +40,16 @@ const levelDataOverrideName = "leveldataoverride.lua"
 type ShardSave struct {
 	// Dir 是存档里该分片的实际目录名，导入时按它拷数据。
 	Dir string
-	// Name 是映射到面板后的分片名，只会是 Master / Caves。
-	// 存档里的目录可能叫别的名字（老版本允许自定义），但面板只认这两个分片。
-	Name     string
+	// Name 是面板里的分片名，取自存档 server.ini 的 name，缺失时用目录名。
+	// 面板不再把它归一化成 Master/Caves：多层世界里分片叫什么都可以，
+	// 但名字必须与目录名一致（面板按 name 建目录、拼 -shard 参数）。
+	Name string
+	// WorldType 是 forest / cave，决定世界生成预设与可用设置项。
+	// 取自 leveldataoverride 的预设，缺失时按名字推断。
+	WorldType string
+	// GameID 是存档里的世界 id（server.ini [SHARD] id）。
+	// 玩家的传送门记的是 id，导入时尽量沿用，避免导进来却传不过去。
+	GameID   int
 	IsMaster bool
 	// HasSave 表示该分片带着真实世界数据（save 目录非空）。
 	HasSave bool

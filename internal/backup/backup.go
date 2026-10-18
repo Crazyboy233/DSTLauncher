@@ -1,8 +1,9 @@
 // Package backup 实现存档的备份、列表、清理与回滚。
 //
 // 备份粒度是「整个集群目录」(<root>/<confDir>/Cluster_N)，一次性覆盖
-// cluster.ini、adminlist/whitelist/blocklist、Master 与 Caves 两个分片，
-// 因此不存在"只备份了地表、洞穴没备份"的问题。
+// cluster.ini、adminlist/whitelist/blocklist 与**全部分片**（不受分片数量影响），
+// 因此不存在"只备份了地表、洞穴没备份"的问题；也不按分片分别打包——
+// 多分片的存档有时序关联，回滚必须整体回。
 //
 // 关键设计：备份前必须先发 c_save() 并等待落盘完成。
 // 直接拷贝 save 目录会拿到写了一半的存档，回滚后世界状态损坏。
