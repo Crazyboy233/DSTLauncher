@@ -90,11 +90,15 @@ func main() {
 		return
 	}
 
-	// 所有运行数据放在可执行文件同级，便于整体迁移与备份
-	workDir, err := os.Getwd()
+	// 所有运行数据放在可执行文件同级，便于整体迁移与备份。
+	// 基于可执行文件自身路径而非进程工作目录（os.Getwd）：
+	// 右键管理员运行、快捷方式、在其他目录启动 exe 时 CWD 会漂移
+	// （如管理员运行时 CWD 是 C:\Windows\System32），数据会建到错误位置。
+	exePath, err := os.Executable()
 	if err != nil {
-		log.Fatalf("获取工作目录失败: %v", err)
+		log.Fatalf("获取程序路径失败: %v", err)
 	}
+	workDir := filepath.Dir(exePath)
 
 	rootDir := filepath.Join(workDir, defaultRootName)
 	logDir := filepath.Join(workDir, "logs")

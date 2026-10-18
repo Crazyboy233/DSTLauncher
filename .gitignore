@@ -6,6 +6,7 @@ web/dist/
 dstwin.exe
 dst-windows.exe
 dst-windows.exe~
+dst-windows.zip
 
 # 运行期数据：存档、日志、房间定义
 dst_save/
