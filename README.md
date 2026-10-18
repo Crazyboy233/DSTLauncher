@@ -2,7 +2,7 @@
 
 Windows 原生《饥荒联机版》(Don't Starve Together) 专用服务器管理系统。用 Go 原生进程管理（`exec.Command` + stdin 管道）替代 Linux 下的 `screen`/`bash`/`ps`/`tail`，在 Windows 上直接运行，无需 WSL。
 
-自用工具，非通用分发软件。
+> 本项目的实现思路参考了 [dst-management-platform-api (DMP)](https://github.com/miracleEverywhere/dst-management-platform-api)，感谢 Miracle 的优秀开源作品（MIT License）。DSTWin 并非 DMP 的分支，而是面向 Windows 平台的独立实现。
 
 ## 功能
 
@@ -90,6 +90,10 @@ logs/                   运行日志、mod 更新日志
 - 配置文件（ini/lua）必须 **UTF-8 无 BOM**，否则中文乱码
 - 停止服务器务必走面板的"停止"，停止前会自动保存存档
 
+## 致谢
+
+- [dst-management-platform-api (DMP)](https://github.com/miracleEverywhere/dst-management-platform-api) —— 本项目的功能设计与实现思路参考来源，作者 [Miracle](https://github.com/miracleEverywhere)，MIT License
+
 ## 许可
 
-自用项目，未附加开源许可。
+本项目基于 [MIT License](LICENSE) 开源。
