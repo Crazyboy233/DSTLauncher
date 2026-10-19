@@ -39,9 +39,11 @@ async function onToggle(next) {
   if (!room) return;
 
   enabled.value = next; // 先按用户的意图切换，失败再回滚
-  const { ok } = await guard(() => modApi.toggle(room.id, props.mod.id, next));
+  const { ok, data } = await guard(() => modApi.toggle(room.id, props.mod.id, next));
   if (ok) {
-    toast(`${props.mod.name || props.mod.id} ${next ? '已启用' : '已禁用'}`);
+    // 客户端模组服务器不加载：后端会把这句话带回来，别让用户以为已经生效
+    if (next && data && data.hint) toast(data.hint, 'warn');
+    else toast(`${props.mod.name || props.mod.id} ${next ? '已启用' : '已禁用'}`);
     return;
   }
   enabled.value = props.mod.enabled;
@@ -109,9 +111,27 @@ function updateOne() {
       <UiPill :tone="enabled ? 'ok' : 'muted'">
         {{ enabled ? '已启用' : '已禁用' }}
       </UiPill>
-      <UiPill :tone="mod.installed ? 'muted' : 'warn'">
-        {{ mod.installed ? '已下载' : '未下载' }}
+      <!-- 客户端模组：服务器从不加载，谈「下载/未下载」没有意义 -->
+      <UiPill
+        v-if="mod.clientOnly"
+        tone="info"
+        title="modinfo.lua 声明 client_only_mod：专用服务器不会加载它，需玩家在自己的客户端订阅启用"
+      >
+        仅客户端
       </UiPill>
+      <template v-else>
+        <UiPill :tone="mod.installed ? 'muted' : 'warn'">
+          {{ mod.installed ? '已下载' : '未下载' }}
+        </UiPill>
+        <!-- 有文件但 Steam 没登记：引擎静默忽略，重新下载才会登记 -->
+        <UiPill
+          v-if="mod.installed && !mod.registered"
+          tone="danger"
+          title="目录存在但未在 Steam 的 acf 中登记，服务器不会加载它（手工拷贝进来的模组就是这样）。点「更新」重新下载即可修复"
+        >
+          未登记
+        </UiPill>
+      </template>
       <UiPill
         v-if="updateInfo"
         tone="warn"

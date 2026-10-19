@@ -28,9 +28,17 @@ const mods = ref([]);
 const loading = ref(false);
 const loadError = ref('');
 
-/** 已启用但本地还没有的模组数量 */
+/** 已启用但本地还没有的模组数量（客户端模组服务器不加载，不计入） */
 const missingCount = computed(() =>
-  mods.value.filter(m => m.enabled && !m.installed).length);
+  mods.value.filter(m => m.enabled && !m.clientOnly && !m.installed).length);
+
+/**
+ * 已启用、本地有文件、但 Steam 没登记的模组数量。
+ * 这类目录引擎看不见（静默忽略），表现就是「启用了却不生效」，
+ * 手工拷进 ugc 目录的模组全属于这一类。
+ */
+const unregisteredCount = computed(() =>
+  mods.value.filter(m => m.enabled && m.installed && !m.clientOnly && !m.registered).length);
 
 async function load() {
   const room = rooms.current;
@@ -117,7 +125,8 @@ async function pollUpdate() {
     // 更新结束后按实际结果汇报，绝不把「没下载到东西」说成成功——
     // 引擎可能在任何阶段静默退出且退出码为 0，只有清点结果才算数
     await load();
-    const missing = mods.value.filter(m => m.enabled && !m.installed).length;
+    // 未下载 + 未登记 都算「没就绪」：两者都只能靠重新下载解决
+    const missing = missingCount.value + unregisteredCount.value;
     // 输出只有「开始…」和结论两行 = 会话没跑引擎，本来就一个都不缺
     const nothingTodo = !st.error && st.output && st.output.length <= 2;
     if (st.error) toast('模组更新失败：' + st.error, 'err');
@@ -266,10 +275,17 @@ watch(() => rooms.current, () => {
           <strong>关闭服务器</strong>后再启用/禁用模组、修改配置或更新模组。
         </span>
       </div>
-      <p v-else-if="missingCount" class="field-tip" style="margin-bottom: 14px">
-        有 {{ missingCount }} 个已启用的模组尚未下载，
-        点右上角<strong>「更新模组」</strong>补齐后再启动服务器（启动时会做检查）。
-      </p>
+      <template v-else>
+        <p v-if="missingCount" class="field-tip" style="margin-bottom: 14px">
+          有 {{ missingCount }} 个已启用的模组尚未下载，
+          点右上角<strong>「更新模组」</strong>补齐后再启动服务器（启动时会做检查）。
+        </p>
+        <p v-if="unregisteredCount" class="field-tip" style="margin-bottom: 14px">
+          有 {{ unregisteredCount }} 个已启用的模组<strong>未在 Steam 登记</strong>（多为手工拷入
+          ugc 目录的），引擎会静默忽略、日志里也没有报错。点这些模组的<strong>「更新」</strong>
+          重新下载一次即可补上登记。
+        </p>
+      </template>
 
       <!-- 检查结果：明确指出是哪个模组旧了，客户端只会笼统提示「有旧版本 mod」 -->
       <div v-if="checkResult" class="notice" style="margin-bottom: 14px">
@@ -288,7 +304,15 @@ watch(() => rooms.current, () => {
         class="field-tip"
         style="margin-bottom: 14px"
       >
-        另有 {{ (checkResult.notInstalled || []).length }} 个已启用但未下载的模组，已一并加入队列。
+        另有 {{ (checkResult.notInstalled || []).length }} 个已启用但本地不可用的模组，已一并加入队列。
+      </p>
+      <p
+        v-if="checkResult && (checkResult.unregistered || []).length"
+        class="field-tip"
+        style="margin-bottom: 14px"
+      >
+        其中 {{ (checkResult.unregistered || []).length }} 个是<strong>手工放入、未在 Steam 登记</strong>的
+        （{{ (checkResult.unregistered || []).join('、') }}），重新下载后才会被引擎识别。
       </p>
       <p
         v-if="checkResult && (checkResult.missing || []).length"

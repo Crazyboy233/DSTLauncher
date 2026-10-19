@@ -1,6 +1,10 @@
 package modmgr
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // TestParseOverridesRoundTrip 覆盖曾经的回归缺陷：
 // 用非贪婪正则提取模组块时，configuration_options 的右大括号会提前截断模组体，
@@ -222,5 +226,137 @@ func TestExtractModInfoName(t *testing.T) {
 		if got := extractModInfoName(c.text); got != c.want {
 			t.Errorf("[%s] extractModInfoName = %q, 期望 %q", c.desc, got, c.want)
 		}
+	}
+}
+
+// TestUnusableMods 覆盖「启用了却不生效」的两种成因与两类豁免：
+//
+//   - 目录存在但 Steam 没在 acf 里登记 → unregistered（引擎静默忽略）
+//   - 目录不存在 → missing
+//   - 客户端专属模组不参与统计（引擎在专用服务器上本来就不加载）
+//   - 未配置共享目录时放弃登记校验，避免把所有模组误判成未登记
+func TestUnusableMods(t *testing.T) {
+	root := t.TempDir()
+	clusterDir := filepath.Join(root, "cluster")
+	shardDir := filepath.Join(clusterDir, "Master")
+	gameDir := filepath.Join(root, "game")
+	ugcDir := filepath.Join(root, "ugc")
+
+	// 三个工坊模组：111 已登记，222 只有目录，333 只有 overrides 记录
+	for _, id := range []string{"111", "222", "444"} {
+		dir := filepath.Join(ugcDir, "content", "322330", id)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		info := "name = \"mod " + id + "\"\n"
+		if id == "444" {
+			info += "client_only_mod = true\n"
+		}
+		if err := os.WriteFile(filepath.Join(dir, "modinfo.lua"), []byte(info), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acf := `"AppWorkshop"
+{
+	"appid"		"322330"
+	"WorkshopItemsInstalled"
+	{
+		"111"
+		{
+			"size"		"1"
+			"timeupdated"		"1"
+			"manifest"		"1"
+		}
+	}
+}`
+	if err := os.WriteFile(filepath.Join(ugcDir, "appworkshop_322330.acf"), []byte(acf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(shardDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	overrides := `return {
+    ["workshop-111"] = { enabled = true },
+    ["workshop-222"] = { enabled = true },
+    ["workshop-333"] = { enabled = true },
+    ["workshop-444"] = { enabled = true },
+    ["workshop-555"] = { enabled = false },
+    ["mymod"] = { enabled = true },
+}`
+	if err := os.WriteFile(filepath.Join(shardDir, "modoverrides.lua"), []byte(overrides), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(clusterDir, gameDir, ugcDir, []string{"Master"})
+	missing, unregistered, err := m.UnusableMods()
+	if err != nil {
+		t.Fatalf("UnusableMods 出错: %v", err)
+	}
+	if len(missing) != 1 || missing[0] != "workshop-333" {
+		t.Errorf("missing = %v, 期望 [workshop-333]", missing)
+	}
+	if len(unregistered) != 1 || unregistered[0] != "workshop-222" {
+		t.Errorf("unregistered = %v, 期望 [workshop-222]", unregistered)
+	}
+
+	// 客户端模组可以被识别出来（供界面打标与 toggle 提示）
+	if !m.IsClientOnly("workshop-444") {
+		t.Error("workshop-444 应被识别为客户端模组")
+	}
+	if m.IsClientOnly("workshop-111") {
+		t.Error("workshop-111 不是客户端模组")
+	}
+
+	// 下载清单要排除客户端模组
+	ids, err := m.EnabledDownloadIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if id == "444" {
+			t.Errorf("客户端模组不该写进下载清单: %v", ids)
+		}
+	}
+	if len(ids) != 3 { // 111 222 333
+		t.Errorf("下载清单 = %v, 期望 3 项", ids)
+	}
+}
+
+// TestEnsureOverridesFillsNewShard 覆盖「新加的分片加载零个模组」：
+// 房间保存只写 ini，modoverrides.lua 只在模组配置变动时才重写，
+// 于是后加的分片长期缺这份文件。
+func TestEnsureOverridesFillsNewShard(t *testing.T) {
+	root := t.TempDir()
+	clusterDir := filepath.Join(root, "cluster")
+	for _, s := range []string{"Master", "Caves", "World3"} {
+		if err := os.MkdirAll(filepath.Join(clusterDir, s), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	masterContent := "return {\n    [\"workshop-111\"] = { enabled = true },\n}"
+	if err := os.WriteFile(filepath.Join(clusterDir, "Master", "modoverrides.lua"), []byte(masterContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Caves 已有一份不同内容：必须保留，不能被主分片覆盖
+	if err := os.WriteFile(filepath.Join(clusterDir, "Caves", "modoverrides.lua"), []byte("return {\n}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(clusterDir, filepath.Join(root, "game"), "", []string{"Master", "Caves", "World3"})
+	if err := m.EnsureOverrides(); err != nil {
+		t.Fatalf("EnsureOverrides 出错: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(clusterDir, "World3", "modoverrides.lua"))
+	if err != nil {
+		t.Fatalf("新分片未补齐 modoverrides.lua: %v", err)
+	}
+	if string(got) != masterContent {
+		t.Errorf("新分片内容 = %q, 期望与主分片一致", string(got))
+	}
+	keep, _ := os.ReadFile(filepath.Join(clusterDir, "Caves", "modoverrides.lua"))
+	if string(keep) != "return {\n}" {
+		t.Errorf("已有分片被覆盖了: %q", string(keep))
 	}
 }

@@ -423,13 +423,24 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 服务器以 -skip_update_server_mods 启动，缺模组会直接加载失败；
+	// 服务器以 -skip_update_server_mods 启动，缺模组或模组未被 Steam 登记
+	// （手工拷进来的）都会导致「启用了却不生效」，且引擎不给任何提示。
 	// 提前拦下比让用户去翻日志省事
 	if s.ugcDir != "" {
-		if missing, err := s.modsFor(rm).MissingMods(); err == nil && len(missing) > 0 {
+		missing, unregistered, mErr := s.modsFor(rm).UnusableMods()
+		if mErr == nil && (len(missing) > 0 || len(unregistered) > 0) {
+			var parts []string
+			if len(missing) > 0 {
+				parts = append(parts, fmt.Sprintf("尚未下载：%s", strings.Join(missing, "、")))
+			}
+			if len(unregistered) > 0 {
+				parts = append(parts, fmt.Sprintf(
+					"未在 Steam 登记、引擎不会加载（多为手工拷贝进来的）：%s",
+					strings.Join(unregistered, "、")))
+			}
 			respond(w, 200, nil, fmt.Errorf(
-				"以下模组尚未下载：%s。请先到「模组」页点击「更新模组」",
-				strings.Join(missing, "、")))
+				"%s。请到「模组」页点「更新模组」重新下载（重新下载会顺带完成登记）",
+				strings.Join(parts, "；")))
 			return
 		}
 	}
@@ -681,32 +692,13 @@ func (s *Server) handleModUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mods := s.modsFor(rm)
-	o, err := mods.LoadOverrides()
+
+	// 只查「已启用 + 工坊来源 + 服务器会加载」的模组：
+	// 本地自制 mod 没有远端可比；客户端模组服务器从不加载，查了也没意义
+	ids, err := mods.EnabledDownloadIDs()
 	if err != nil {
 		respond(w, 200, nil, err)
 		return
-	}
-
-	// 只查「已启用 + 工坊来源」的模组：本地自制 mod 没有远端可比
-	ids := make([]string, 0, len(o.Order))
-	seen := make(map[string]bool, len(o.Order))
-	addID := func(id string) {
-		if seen[id] || !strings.HasPrefix(id, "workshop-") {
-			return
-		}
-		seen[id] = true
-		ids = append(ids, strings.TrimPrefix(id, "workshop-"))
-	}
-	for _, id := range o.Order {
-		if o.Enabled[id] {
-			addID(id)
-		}
-	}
-	// Order 是写入顺序，可能漏掉人工编辑过的条目，再扫一遍 Enabled 兜底
-	for id, on := range o.Enabled {
-		if on {
-			addID(id)
-		}
 	}
 
 	if len(ids) == 0 {
@@ -715,6 +707,7 @@ func (s *Server) handleModUpdates(w http.ResponseWriter, r *http.Request) {
 			"updates":      []modUpdateView{},
 			"missing":      []string{},
 			"notInstalled": []string{},
+			"unregistered": []string{},
 		}, nil)
 		return
 	}
@@ -738,12 +731,20 @@ func (s *Server) handleModUpdates(w http.ResponseWriter, r *http.Request) {
 	updates := make([]modUpdateView, 0)
 	missing := make([]string, 0)
 	notInstalled := make([]string, 0)
+	unregistered := make([]string, 0)
 	installed, _ := mods.InstalledMods()
+	registered, checkReg := mods.RegisteredMods()
 	for _, id := range ids {
 		key := "workshop-" + id
 		if !installed[key] {
 			// 已启用但本地没有文件：不需要比版本，直接下载
 			notInstalled = append(notInstalled, key)
+		} else if checkReg && !registered[key] {
+			// 有目录但 Steam 没登记（手工拷进来的）：引擎根本看不见，
+			// 重新下载才能补上 acf 记录。acf 里没有 timeupdated，也无从比版本
+			unregistered = append(unregistered, key)
+			notInstalled = append(notInstalled, key)
+			continue
 		}
 
 		it, ok := byID[id]
@@ -754,7 +755,6 @@ func (s *Server) handleModUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 		loc := local[id]
 		if loc.TimeUpdated <= 0 {
-			// acf 里没有记录（模组是手工拷进来的），无从判断新旧
 			continue
 		}
 		if it.TimeUpdated > loc.TimeUpdated {
@@ -776,6 +776,7 @@ func (s *Server) handleModUpdates(w http.ResponseWriter, r *http.Request) {
 		"updates":      updates,
 		"missing":      missing,
 		"notInstalled": notInstalled,
+		"unregistered": unregistered,
 	}, nil)
 }
 
@@ -919,12 +920,20 @@ func (s *Server) syncModsSetup() {
 	}
 	seen := map[string]bool{}
 	for _, rm := range s.rooms.List() {
-		o, err := s.modsFor(rm).LoadOverrides()
+		mods := s.modsFor(rm)
+		// 后加的分片可能整份缺 modoverrides.lua（房间保存只写 ini），
+		// 那样它会加载零个模组。借这个每次模组变动都会走到的入口补齐。
+		if err := mods.EnsureOverrides(); err != nil {
+			fmt.Printf("[!] 补齐房间「%s」的分片模组配置失败: %v\n", rm.Name, err)
+		}
+		// 只收集「服务器会加载」的模组：客户端专属模组不进下载清单，
+		// 服务器从不加载它们，下载纯属浪费磁盘
+		ids, err := mods.EnabledDownloadIDs()
 		if err != nil {
 			fmt.Printf("[!] 读取房间「%s」的模组配置失败: %v\n", rm.Name, err)
 			continue
 		}
-		for _, id := range o.EnabledWorkshopIDs() {
+		for _, id := range ids {
 			seen[id] = true
 		}
 	}
@@ -960,19 +969,27 @@ func (s *Server) handleMods(w http.ResponseWriter, r *http.Request) {
 
 	list := make([]*modmgr.Mod, 0)
 	seen := make(map[string]bool)
+	// 登记表用来标出「有目录但引擎看不见」的模组（手工拷贝进来的那种）。
+	// 与开服检查同源，避免两处判断不一致。
+	registered, checkReg := mods.RegisteredMods()
 	add := func(id string) {
 		if seen[id] {
 			return
 		}
 		seen[id] = true
 		name, _ := mods.ModInfo(id)
+		clientOnly, _ := mods.ModFlags(id)
+		workshopMod := strings.HasPrefix(id, "workshop-")
 		list = append(list, &modmgr.Mod{
-			ID:        id,
-			Name:      name,
-			Enabled:   o.Enabled[id],
-			Installed: installed[id],
-			Config:    o.Config[id],
-			Priority:  o.Priority[id],
+			ID:         id,
+			Name:       name,
+			Enabled:    o.Enabled[id],
+			Installed:  installed[id],
+			Config:     o.Config[id],
+			Priority:   o.Priority[id],
+			ClientOnly: clientOnly,
+			// 本地模组不走 SteamUGC，登记与否无意义，一律按可用处理
+			Registered: !workshopMod || !checkReg || registered[id],
 		})
 	}
 	// overrides 中的顺序即用户期望的加载顺序
@@ -993,11 +1010,23 @@ func (s *Server) handleModToggle(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, nil, err)
 		return
 	}
-	if err := s.modsFor(rm).SetEnabled(query(r, "id"), query(r, "enabled") == "true"); err != nil {
+	id := query(r, "id")
+	enabled := query(r, "enabled") == "true"
+	mods := s.modsFor(rm)
+	if err := mods.SetEnabled(id, enabled); err != nil {
 		respond(w, 200, nil, err)
 		return
 	}
 	s.syncModsSetup()
+
+	// 客户端专属模组：写了 enabled 也不会被专用服务器加载（引擎按
+	// client_only_mod 过滤），如实告诉用户，别让他以为服务器缺了什么
+	if enabled && mods.IsClientOnly(id) {
+		respond(w, 200, map[string]string{
+			"hint": "该模组为客户端模组，服务器不会加载它：玩家需在自己的客户端订阅启用才有效果",
+		}, nil)
+		return
+	}
 	respond(w, 200, nil, nil)
 }
 

@@ -21,6 +21,7 @@ import (
 
 	"dst-windows/internal/config"
 	"dst-windows/internal/textutil"
+	"dst-windows/internal/workshop"
 )
 
 // Mod 表示一个模组的完整信息。
@@ -29,11 +30,17 @@ type Mod struct {
 	WorkshopID   string                 `json:"workshopId"` // 纯数字 ID
 	Name         string                 `json:"name"`
 	Enabled      bool                   `json:"enabled"`
-	Installed    bool                   `json:"installed"` // 本地是否已下载
+	Installed    bool                   `json:"installed"` // 本地是否有实体文件
 	Config       map[string]interface{} `json:"config"`    // mod_config 配置项
 	Priority     int                    `json:"priority"`
 	DownloadedAt string                 `json:"downloadedAt"`
 	Size         int64                  `json:"size"`
+	// ClientOnly 取自 modinfo.lua 的 client_only_mod。
+	// 引擎在专用服务器上会直接过滤这类模组，启用它不会加载任何东西。
+	ClientOnly bool `json:"clientOnly"`
+	// Registered 表示 Steam 是否已在 acf 里登记该工坊模组。
+	// 未登记的目录引擎看不见（静默忽略），必须重新下载才会登记。
+	Registered bool `json:"registered"`
 }
 
 // Overrides 解析后的 modoverrides.lua 结构。
@@ -461,32 +468,194 @@ func (m *Manager) WriteSetupLua(ids []string) error {
 	return config.WriteFileAtomic(m.setupLua, []byte(sb.String()))
 }
 
-// MissingMods 返回已启用但本地尚未下载的工坊模组 ID。
+// MissingMods 返回已启用但本地不可用的工坊模组 ID。
+//
 // 服务器以 -skip_update_server_mods 启动时不会自己补模组，
 // 所以启动前必须用这份清单确认「要加载的都已经在本地」。
 //
+// 「不可用」有两种，处理方式都是重新走一次引擎下载：
+//   - 没有实体目录（从未下载）
+//   - 有目录但 Steam 没在 acf 里登记（手工拷贝进来的），引擎会静默忽略
+//
+// 客户端模组不参与统计：引擎在专用服务器上本来就会过滤掉它们。
 // 只统计 workshop- 前缀的条目：本地模组（目录名形式）无法下载，
 // 只能由用户手工放进 mods 目录，不能因为它们缺失而拦住启动。
 func (m *Manager) MissingMods() ([]string, error) {
-	o, err := m.LoadOverrides()
+	missing, unregistered, err := m.UnusableMods()
 	if err != nil {
 		return nil, err
+	}
+	out := make([]string, 0, len(missing)+len(unregistered))
+	out = append(out, missing...)
+	out = append(out, unregistered...)
+	sort.Strings(out)
+	return out, nil
+}
+
+// UnusableMods 把「已启用、但服务器启动后不会生效」的工坊模组分成两类返回：
+//
+//	missing      本地没有实体目录
+//	unregistered 有目录但 Steam 没登记（引擎只枚举 SteamUGC 认得的物品）
+//
+// 这个区分是必须的，两类都指向同一个修法（重新下载），但提示语不同：
+// 用户看到「未下载」会去点下载；看到「未登记」才会明白手工拷贝为何无效。
+//
+// 实测背景（2026-10）：ugc 目录里 26 个模组目录只有 17 个登记在
+// appworkshop_322330.acf，未登记的 9 个里被启用的 2 个在 server_log 中
+// 完全没有加载记录，也没有任何报错行——只有按 acf 对照才能定位。
+func (m *Manager) UnusableMods() (missing, unregistered []string, err error) {
+	o, err := m.LoadOverrides()
+	if err != nil {
+		return nil, nil, err
 	}
 	installed, err := m.InstalledMods()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	registered, checkReg := m.RegisteredMods()
 
-	var missing []string
 	for _, id := range o.Order {
 		if !o.Enabled[id] || !strings.HasPrefix(id, "workshop-") {
 			continue
 		}
+		// 客户端专属模组：引擎在专用服务器上不加载，缺了也不算故障
+		if m.IsClientOnly(id) {
+			continue
+		}
 		if !installed[id] {
 			missing = append(missing, id)
+			continue
+		}
+		if checkReg && !registered[id] {
+			unregistered = append(unregistered, id)
 		}
 	}
-	return missing, nil
+	sort.Strings(missing)
+	sort.Strings(unregistered)
+	return missing, unregistered, nil
+}
+
+// RegisteredMods 返回 Steam 已登记在 acf 里的工坊模组（键为 workshop-<数字>）。
+//
+// 第二个返回值为 false 表示「无法判断」，调用方必须放弃登记校验：
+// 未配置共享目录、acf 读取或解析失败时，不能把所有模组都判成未登记。
+// acf 文件不存在（一个工坊模组都没下过）返回空表 + true——那是明确状态。
+func (m *Manager) RegisteredMods() (map[string]bool, bool) {
+	if m.ugcDir == "" {
+		return nil, false
+	}
+	items, err := workshop.LoadInstalled(m.ugcDir)
+	if err != nil {
+		return nil, false
+	}
+	out := make(map[string]bool, len(items))
+	for id := range items {
+		out["workshop-"+id] = true
+	}
+	return out, true
+}
+
+// EnabledDownloadIDs 返回需要写进 dedicated_server_mods_setup.lua 的工坊 ID
+// （纯数字、升序）。
+//
+// 客户端专属模组被刻意排除：服务器从不加载它们，写进下载清单只会白占硬盘；
+// 玩家在自己的客户端订阅启用即可。
+func (m *Manager) EnabledDownloadIDs() ([]string, error) {
+	o, err := m.LoadOverrides()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(o.Order))
+	for _, id := range o.Order {
+		if !o.Enabled[id] || !strings.HasPrefix(id, "workshop-") {
+			continue
+		}
+		if m.IsClientOnly(id) {
+			continue
+		}
+		ids = append(ids, strings.TrimPrefix(id, "workshop-"))
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// EnsureOverrides 保证每个启用中的分片都有一份 modoverrides.lua。
+//
+// 分片是后加的（房间页里加世界），而 modoverrides.lua 只在用户改动模组配置时
+// 才会被整体重写——新分片于是长期缺这份文件，启动后加载零个模组，
+// 表现为「地表有模组、新加的世界没有」。
+//
+// 补齐内容取第一个存在的分片文件；全都没有时写一份空表。
+// 已存在的文件一律不覆盖（那是用户配置的唯一事实来源）。
+func (m *Manager) EnsureOverrides() error {
+	paths := m.overridesPaths()
+	if len(paths) == 0 {
+		return nil
+	}
+	// 房间还没生成到磁盘时不要凭空造目录（房间列表可能残留已删存档的房间）
+	if !dirExists(filepath.Dir(paths[0])) {
+		return nil
+	}
+	content := []byte(NewOverrides().String())
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err == nil {
+			content = data
+			break
+		}
+		if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	for _, p := range paths {
+		if fileExists(p) {
+			continue
+		}
+		if err := config.WriteFileAtomic(p, content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// 模组能力标志（modinfo.lua 顶层字段）。
+//
+// client_only_mod     只影响客户端（UI、提示类），专用服务器从不加载它
+// all_clients_require_mod 客户端不装就进不来/版本不匹配，服务器会下发配置
+//
+// 引擎侧依据：scripts/mods.lua 的 GetEnabledServerModNames() 用
+// `if not modinfo.client_only_mod` 过滤；GetEnabledServerModsConfigData()
+// 只对 all_clients_require_mod 的模组下发配置。
+var (
+	clientOnlyRe = regexp.MustCompile(`(?m)^\s*client_only_mod\s*=\s*(true|false)`)
+	allClientsRe = regexp.MustCompile(`(?m)^\s*all_clients_require_mod\s*=\s*(true|false)`)
+)
+
+// IsClientOnly 判断模组是否只在客户端起作用。
+// 读不到 modinfo.lua 时按「否」处理：宁可多下载，也不误判成客户端模组而漏装。
+func (m *Manager) IsClientOnly(id string) bool {
+	clientOnly, _ := m.ModFlags(id)
+	return clientOnly
+}
+
+// ModFlags 读取 modinfo.lua 里的能力标志。
+func (m *Manager) ModFlags(id string) (clientOnly, allClientsRequire bool) {
+	dir := m.findModDir(id)
+	if dir == "" {
+		return false, false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "modinfo.lua"))
+	if err != nil {
+		return false, false
+	}
+	text := string(data)
+	return matchBool(clientOnlyRe, text), matchBool(allClientsRe, text)
+}
+
+// matchBool 取正则首个捕获组的布尔值，没匹配到按 false。
+func matchBool(re *regexp.Regexp, text string) bool {
+	m := re.FindStringSubmatch(text)
+	return len(m) == 2 && m[1] == "true"
 }
 
 func dirExists(p string) bool {
@@ -534,7 +703,9 @@ func (m *Manager) InstalledMods() (map[string]bool, error) {
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() {
+			// 以 modinfo.lua 为准：下载中断留下的空壳目录不算已安装，
+			// 引擎同样认不出它（与 targetModInstalled 的判据保持一致）
+			if e.IsDir() && fileExists(filepath.Join(base, e.Name(), "modinfo.lua")) {
 				out["workshop-"+e.Name()] = true
 			}
 		}
