@@ -850,10 +850,14 @@ input[type="radio"] {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  transition: border-color .15s ease;
+  transition: border-color .15s ease, background-color .15s ease;
 }
 .mod:last-child { margin-bottom: 0; }
-.mod:hover { border-color: var(--border-strong); }
+/* 悬停或内部元素获得焦点时，整条底色加深一档，同时描边加重。
+   :hover 会被子元素触发——鼠标放到开关、按钮、输入框上，整条同样变深；
+   :focus-within 覆盖键盘 Tab 与输入态，两种交互的反馈保持一致 */
+.mod:hover,
+.mod:focus-within { background: var(--surface-3); border-color: var(--border-strong); }
 .mod-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .mod-name { font-weight: 600; font-size: 13.5px; }
 .mod-id { font-size: 11.5px; color: var(--text-muted); font-family: "JetBrains Mono", ui-monospace, monospace; }
