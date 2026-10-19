@@ -996,8 +996,17 @@ func (s *Server) handleMods(w http.ResponseWriter, r *http.Request) {
 	for _, id := range o.Order {
 		add(id)
 	}
-	// 已下载但未在 overrides 中出现的模组也列出来
+	// 已下载但未在 overrides 中出现的模组也列出来。
+	// 必须先排序再遍历：installed 是 map，Go 的 map 迭代顺序是随机的，
+	// 直接 range 会让这部分模组每次刷新都换位置。
+	rest := make([]string, 0, len(installed))
 	for id := range installed {
+		if !seen[id] {
+			rest = append(rest, id)
+		}
+	}
+	sort.Strings(rest)
+	for _, id := range rest {
 		add(id)
 	}
 

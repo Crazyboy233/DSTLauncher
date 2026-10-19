@@ -17,7 +17,7 @@ const props = defineProps({
   updateInfo: { type: Object, default: null },
 });
 
-const emit = defineEmits(['changed', 'update']);
+const emit = defineEmits(['changed', 'update', 'toggled']);
 
 const rooms = useRoomsStore();
 const expanded = ref(false);
@@ -41,6 +41,8 @@ async function onToggle(next) {
   enabled.value = next; // 先按用户的意图切换，失败再回滚
   const { ok, data } = await guard(() => modApi.toggle(room.id, props.mod.id, next));
   if (ok) {
+    // 交给父组件更新本地副本：已启用模组要立刻置顶，不必重新拉列表
+    emit('toggled', { id: props.mod.id, enabled: next });
     // 客户端模组服务器不加载：后端会把这句话带回来，别让用户以为已经生效
     if (next && data && data.hint) toast(data.hint, 'warn');
     else toast(`${props.mod.name || props.mod.id} ${next ? '已启用' : '已禁用'}`);

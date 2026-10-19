@@ -28,6 +28,26 @@ const mods = ref([]);
 const loading = ref(false);
 const loadError = ref('');
 
+/**
+ * 已启用的模组置顶显示，组内按名称排序。
+ *
+ * 排序放在页面侧：每个房间的启用集合不同，切换房间时拿到的是一份新列表；
+ * 而启用/禁用是就地切换的，重新请求反而慢。用计算属性，数据一变就重算。
+ *
+ * 组内必须自己排：后端只保证「overrides 里的顺序」和「其余按 ID」，
+ * 名称顺序对用户没有意义。Intl.Collator 的中文排序按拼音，
+ * numeric 让「v2」「v10」按数值而不是字符排。
+ */
+const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+
+const sortedMods = computed(() =>
+  [...mods.value].sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    const byName = collator.compare(a.name || a.id, b.name || b.id);
+    // 同名（比如多个 mod 都没解析出名字）时按 ID 兜底，保证顺序稳定
+    return byName !== 0 ? byName : collator.compare(a.id, b.id);
+  }));
+
 /** 已启用但本地还没有的模组数量（客户端模组服务器不加载，不计入） */
 const missingCount = computed(() =>
   mods.value.filter(m => m.enabled && !m.clientOnly && !m.installed).length);
@@ -40,12 +60,22 @@ const missingCount = computed(() =>
 const unregisteredCount = computed(() =>
   mods.value.filter(m => m.enabled && m.installed && !m.clientOnly && !m.registered).length);
 
+/** 上一次成功加载的房间 ID，用于识别「切房间」并清掉上一个房间的列表 */
+let loadedRoomId = null;
+
 async function load() {
   const room = rooms.current;
   if (!room) {
     mods.value = [];
+    loadedRoomId = null;
     loadError.value = '';
     return;
+  }
+  // 切房间时先清空：各房间的启用集合不同，留着旧列表会在新数据到达前
+  // 把上一个房间的模组（含它的置顶顺序）先渲染出来，看起来像串了
+  if (loadedRoomId !== room.id) {
+    mods.value = [];
+    loadedRoomId = room.id;
   }
   loading.value = true;
   loadError.value = '';
@@ -219,6 +249,17 @@ async function stopUpdate() {
   await guard(() => modUpdateApi.stop(), { success: '已请求中止更新' });
 }
 
+/**
+ * 模组启用状态就地切换成功后同步本地副本。
+ *
+ * 不重新拉取列表：排序与各种计数都由计算属性驱动，改这一个字段就够了，
+ * 列表会立刻重排（刚启用的跳到已启用区），也不会出现整页闪一下。
+ */
+function onToggled({ id, enabled }) {
+  const mod = mods.value.find(m => m.id === id);
+  if (mod) mod.enabled = enabled;
+}
+
 onMounted(async () => {
   await load();
   // 面板重启后若上次更新还没结束，恢复轮询而不是丢掉进度
@@ -346,11 +387,12 @@ watch(() => rooms.current, () => {
 
       <template v-if="mods.length">
         <ModItem
-          v-for="m in mods"
+          v-for="m in sortedMods"
           :key="m.id"
           :mod="m"
           :update-info="updateMap[m.id] || null"
           @changed="load"
+          @toggled="onToggled"
           @update="startOne"
         />
       </template>
