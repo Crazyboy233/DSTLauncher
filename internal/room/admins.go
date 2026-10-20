@@ -20,9 +20,14 @@ import (
 // AdminsFileName 是集群目录下的管理员名单文件名。
 const AdminsFileName = "adminlist.txt"
 
-// kleiIDRe 校验 Klei 用户 ID：KU_ 前缀 + 字母数字。
-// 放宽长度到 1-32，Klei 并没有承诺 ID 段的固定长度。
-var kleiIDRe = regexp.MustCompile(`^KU_[A-Za-z0-9]{1,32}$`)
+// kleiIDRe 只卡两条硬性要求：KU_ 开头、非空且不含空白。
+//
+// 不做字符集/长度校验是刻意的：官方 Wiki 对在线 ID 的写法是
+// KU_ + [A-Za-z0-9_]（下划线合法），而实际 ID 长度 Klei 也没承诺过。
+// ID 真写错时服务器自己匹配不上、该行默认不生效，代价只是不生效；
+// 反而拦在门口会误伤合法 ID（KU_BKDva_PN 这种就被拦过）。
+// 唯一必须守住的是不能有空白：名单是每行一个 ID，空白会破坏文件格式。
+var kleiIDRe = regexp.MustCompile(`^KU_[!-~]+$`)
 
 // ValidKleiID 判断是否是合法的 Klei 用户 ID。
 func ValidKleiID(id string) bool { return kleiIDRe.MatchString(id) }
@@ -60,7 +65,7 @@ func ReadAdmins(clusterDir string) ([]string, error) {
 func AddAdmin(clusterDir, id string) ([]string, error) {
 	id = NormalizeKleiID(id)
 	if !ValidKleiID(id) {
-		return nil, fmt.Errorf("Klei ID 不合法: %q（应为 KU_ 开头、后接字母数字，可在游戏内用 TheNet:GetUserID() 查看）", id)
+		return nil, fmt.Errorf("Klei ID 不合法: %q（应以 KU_ 开头、不含空格，可在游戏内用 TheNet:GetUserID() 查看）", id)
 	}
 
 	list, err := ReadAdmins(clusterDir)

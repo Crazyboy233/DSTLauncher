@@ -14,10 +14,14 @@ func TestValidKleiID(t *testing.T) {
 	}{
 		{"KU_ABCdef123", true},
 		{"KU_" + strings.Repeat("a", 32), true},
-		{"KU_", false},                           // 缺 ID 段
-		{"KU_含中文", false},                        // 非字母数字
-		{"KU_" + strings.Repeat("a", 33), false}, // 超长
-		{"abc", false},                           // 缺前缀
+		{"KU_BKDva_PN", true},                   // ID 段含下划线：官方 Wiki 允许
+		{"KU_zyXWFegd", true},                   // 常规 8 位
+		{"KU_a-b.c~d!", true},                   // 仅要求 KU_ 开头，不挑字符集
+		{"KU_", false},                          // 缺 ID 段
+		{"KU_含中文", false},                       // 非 ASCII，不能写进名单
+		{"KU_abc def", false},                   // 含空格，会破坏一行一个 ID 的格式
+		{"KU_" + strings.Repeat("a", 33), true}, // 不再卡长度
+		{"abc", false},                          // 缺前缀
 		{"", false},
 		{" KU_abc ", false}, // 未 trim 的原始串不合法
 	}

@@ -51,8 +51,10 @@ async function add() {
   const room = rooms.current;
   const id = input.value.trim();
   if (!room || !id) return;
-  if (!/^KU_[A-Za-z0-9]{1,32}$/i.test(id)) {
-    toast('Klei ID 不合法：应为 KU_ 开头、后接字母数字', 'err');
+  // 只卡 KU_ 前缀与空格：ID 写错时服务器匹配不上、该行不生效，
+  // 前端不做字符集/长度校验（官方允许 KU_ + [A-Za-z0-9_]）。
+  if (!/^KU_[!-~]+$/i.test(id)) {
+    toast('Klei ID 不合法：应以 KU_ 开头、不含空格', 'err');
     return;
   }
 
