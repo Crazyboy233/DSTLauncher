@@ -1,3 +1,6 @@
+# ai
+.workbuddy/
+
 # 前端依赖与构建产物
 web/node_modules/
 web/dist/
