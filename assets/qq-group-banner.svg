@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="140" viewBox="0 0 800 140" role="img" aria-label="QQ 交流反馈群 1131102486">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12B7F5"/>
+      <stop offset="1" stop-color="#2E6FF6"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.02"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="800" height="140" rx="16" fill="url(#bg)"/>
+  <rect x="0" y="0" width="800" height="140" rx="16" fill="url(#sheen)"/>
+
+  <!-- 聊天气泡图标 -->
+  <g>
+    <rect x="44" y="40" width="60" height="46" rx="12" fill="#FFFFFF" opacity="0.95"/>
+    <path d="M 62 84 L 62 98 L 78 84 Z" fill="#FFFFFF" opacity="0.95"/>
+    <text x="74" y="72" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif" font-size="24" font-weight="800" fill="#12B7F5">QQ</text>
+  </g>
+
+  <!-- 主文案 -->
+  <text x="128" y="58" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif" font-size="21" font-weight="600" fill="#FFFFFF" opacity="0.92">交流反馈 · 加群提问</text>
+  <text x="126" y="104" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif" font-size="40" font-weight="800" fill="#FFFFFF" letter-spacing="3">1131102486</text>
+</svg>

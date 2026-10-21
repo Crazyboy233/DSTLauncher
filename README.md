@@ -4,6 +4,10 @@ Windows 原生《饥荒联机版》(Don't Starve Together) 专用服务器管理
 
 > 本项目的实现思路参考了 [dst-management-platform-api (DMP)](https://github.com/miracleEverywhere/dst-management-platform-api)，感谢 Miracle 的优秀开源作品（MIT License）。DSTWin 并非 DMP 的分支，而是面向 Windows 平台的独立实现。
 
+<div align="center">
+  <img src="assets/qq-group-banner.svg" alt="交流反馈 QQ 群 1131102486" width="720">
+</div>
+
 ## 功能
 
 - **Web 管理面板**：房间管理、启停/重启、控制台命令、实时日志（SSE 流式输出）
@@ -93,10 +97,6 @@ logs/                   运行日志、mod 更新日志
 - 启动参数顺序敏感：`-persistent_storage_root <绝对路径> -conf_dir <单段名> -cluster <单段名> -shard <单段名>`，可执行文件工作目录必须是 `bin/`
 - 配置文件（ini/lua）必须 **UTF-8 无 BOM**，否则中文乱码
 - 停止服务器务必走面板的"停止"，停止前会自动保存存档
-
-## 交流与反馈
-
-文档不可能覆盖所有情况。第一次在 Windows 上开服，遇到解决不了的问题，可以加 QQ 群 **1131102486** 询问。
 
 ## 致谢
 
