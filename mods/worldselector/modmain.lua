@@ -15,6 +15,11 @@
 
 local RPC_NS = "WorldSelector"
 
+-- DST 的 mod 沙箱环境没有注入 tonumber（tostring/pairs/type 都有，唯独 tonumber
+-- 是 nil，2026-10-21 实测报 "attempt to call global 'tonumber' (a nil value)"）。
+-- 从 GLOBAL 取一份，避免在排序闭包里踩到这个坑。
+local tonumber = GLOBAL.tonumber
+
 -- 同一玩家两次迁移之间的最小间隔（秒）。迁移会序列化整个玩家存档，连点很亏。
 local COOLDOWN_SECONDS = 30
 
@@ -27,6 +32,46 @@ local LOCATION_LABEL = {
     forest = "地表",
     cave = "洞穴",
 }
+
+-- 客户端面板状态：下行 RPC handler（两端都注册）与客户端 UI 区共享，
+-- 必须声明在共享区。服务端上它们保持 nil，永远不会被触碰。
+local the_panel = nil
+local the_list = nil
+-- 面板重绘函数由客户端 UI 区赋值；服务端上保持 nil（handler 不会在服务端执行）
+local RenderPanel = nil
+
+-- ===================== 客户端下行 RPC（两端都必须注册） =====================
+--
+-- 引擎按注册表给 mod RPC 分配 id：CLIENT_MOD_RPC[namespace][name] 只在
+-- AddClientModRPCHandler 执行后才存在。专用服务器不跑客户端 UI 区，
+-- 但 Query 处理里要调 GetClientModRPC 取 id 才能发 List——服务端不注册的话，
+-- GetClientModRPC 直接对 nil 索引报错（networkclientrpc.lua:1973
+-- "attempt to index field '?' (a nil value)"，2026-10-21 实测踩坑）。
+-- 处理函数本体只在客户端收到 RPC 时执行，服务端注册无副作用。
+AddClientModRPCHandler(RPC_NS, "List", function(payload)
+    payload = payload or ""
+    -- 5 秒一次的轮询里，列表没变就别重建控件（重建会闪一下）
+    if payload == the_list then
+        return
+    end
+    the_list = payload
+    if the_panel ~= nil and the_panel.inst:IsValid() then
+        RenderPanel(the_panel)
+    end
+end)
+
+AddClientModRPCHandler(RPC_NS, "Denied", function(reason)
+    if the_panel ~= nil and the_panel.inst:IsValid() then
+        the_panel.locked = false
+        the_panel.notice = tostring(reason or "无法迁移")
+        for _, btn in ipairs(the_panel.buttons or {}) do
+            btn:Enable()
+        end
+        if the_panel.status ~= nil then
+            the_panel.status:SetString(the_panel.notice)
+        end
+    end
+end)
 
 -- ===================== 服务端 =====================
 
@@ -159,7 +204,7 @@ AddModRPCHandler(RPC_NS, "Travel", function(player, world_id)
     end
 end)
 
--- ===================== 客户端 =====================
+-- ===================== 客户端 UI =====================
 
 if GLOBAL.TheNet == nil or GLOBAL.TheNet:IsDedicated() then
     return
@@ -175,7 +220,10 @@ local ATLAS = "images/global.xml"
 local ATLAS_IMAGE = "square.tex"
 
 local BUTTON_SIZE = { 96, 36 }
-local BUTTON_POS = { -138, -50 }
+-- bottomright_root 的原点在屏幕右下角（controls.lua 里 SetHAnchor(ANCHOR_RIGHT) +
+-- SetVAnchor(ANCHOR_BOTTOM)），x 负数向左、y 正数向上；原版小地图按钮在 (-60, 70)。
+-- y 必须为正，负值会把按钮放到屏幕底边之外（首版 -50 就是这个坑）。
+local BUTTON_POS = { -170, 60 }
 
 local PANEL_W = 380
 local ROW_W = 344
@@ -194,9 +242,6 @@ local ANCHOR_RIGHT = GLOBAL.ANCHOR_RIGHT
 local TITLEFONT = GLOBAL.TITLEFONT
 local DEFAULTFONT = GLOBAL.DEFAULTFONT
 local BODYTEXTFONT = GLOBAL.BODYTEXTFONT
-
-local the_panel = nil
-local the_list = nil
 
 local function ParseList(payload)
     local entries = {}
@@ -222,8 +267,10 @@ local function MakeSquareButton(parent, w, h, tint, onclick)
     return btn
 end
 
--- 面板整体重绘：世界数量变了高度就得变，逐行增删反而更绕
-local function RenderPanel(root)
+-- 面板整体重绘：世界数量变了高度就得变，逐行增删反而更绕。
+-- 注意：RenderPanel 是共享区前置声明的局部（下行 RPC handler 也要调它），
+-- 这里只能赋值，不能再写 local。
+RenderPanel = function(root)
     root:KillAllChildren()
     root.buttons = {}
     -- 迁移请求已发出但结果没回来时重绘，不能把按钮又放开
@@ -308,8 +355,15 @@ local function OpenPanel(owner)
         return
     end
 
+    -- 自建锚点节点，不依赖 hud.root 的坐标系：直接锚定屏幕中心、按比例缩放
+    -- （与 controls.lua 里 bottomright_root 的官方做法一致），
+    -- 窗口化 / 任意分辨率下面板都居中且比例正确。挂在固定坐标系的父节点上
+    -- 用 SetPosition 落点不可控（实测跑到过左下角屏幕外）。
     local root = Widget("worldselector_panel")
-    root:SetPosition(0, 50)
+    root:SetScaleMode(GLOBAL.SCALEMODE_PROPORTIONAL)
+    root:SetHAnchor(GLOBAL.ANCHOR_MIDDLE)
+    root:SetVAnchor(GLOBAL.ANCHOR_MIDDLE)
+    root:SetMaxPropUpscale(GLOBAL.MAX_HUD_SCALE)
     the_panel = root
     RenderPanel(root)
     hud.root:AddChild(root)
@@ -332,31 +386,6 @@ local function TogglePanel(owner)
     end
     OpenPanel(owner)
 end
-
-AddClientModRPCHandler(RPC_NS, "List", function(payload)
-    payload = payload or ""
-    -- 5 秒一次的轮询里，列表没变就别重建控件（重建会闪一下）
-    if payload == the_list then
-        return
-    end
-    the_list = payload
-    if the_panel ~= nil and the_panel.inst:IsValid() then
-        RenderPanel(the_panel)
-    end
-end)
-
-AddClientModRPCHandler(RPC_NS, "Denied", function(reason)
-    if the_panel ~= nil and the_panel.inst:IsValid() then
-        the_panel.locked = false
-        the_panel.notice = tostring(reason or "无法迁移")
-        for _, btn in ipairs(the_panel.buttons or {}) do
-            btn:Enable()
-        end
-        if the_panel.status ~= nil then
-            the_panel.status:SetString(the_panel.notice)
-        end
-    end
-end)
 
 -- HUD 按钮：挂在右下角（小地图旁边），每个玩家自己点
 AddClassPostConstruct("widgets/controls", function(controls)
