@@ -102,7 +102,13 @@ export const logApi = {
 
 export const worldApi = {
   get: (roomId, shard) => request('/api/worldconfig', { params: { room: roomId, shard } }),
-  save: payload => request('/api/worldconfig', { method: 'PUT', body: payload }),
+  // 房间 id 必须走查询参数：后端 roomByID 只认 ?room=，不读请求体。
+  // 漏传会把配置保存到第一个房间，保存后 load 当前房间时改动就像「消失」了。
+  save: (roomId, payload) => request('/api/worldconfig', {
+    method: 'PUT',
+    params: { room: roomId },
+    body: payload,
+  }),
 };
 
 /* ---------- 服务器文件安装 ---------- */

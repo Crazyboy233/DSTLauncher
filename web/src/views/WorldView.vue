@@ -205,8 +205,7 @@ async function save() {
   }
   saving.value = true;
   const { ok, data } = await guard(
-    () => worldApi.save({
-      room: rooms.currentId,
+    () => worldApi.save(rooms.currentId, {
       shard: shard.value,
       overrideEnabled: enabled.value,
       worldgenPreset: worldgenPreset.value,
