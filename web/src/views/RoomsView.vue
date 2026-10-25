@@ -52,6 +52,15 @@ function close() {
   editor.value.open = false;
 }
 
+/**
+ * 保存成功后只提示、不收起编辑界面（收起会让人以为还得再点一次编辑才能接着改）。
+ * 新建时把编辑目标切到刚保存的房间：表单随即从「新建」变「编辑」，再点保存走更新。
+ * 这里刻意不改 key——改 key 会重建表单。
+ */
+function onSaved(room) {
+  if (room && room.id) editor.value.roomId = room.id;
+}
+
 function onSelect(id) {
   rooms.select(id);
 }
@@ -127,7 +136,7 @@ async function onRemove(id) {
       :room="editingRoom"
       :meta="rooms.meta"
       @close="close"
-      @saved="close"
+      @saved="onSaved"
     />
   </div>
 </template>

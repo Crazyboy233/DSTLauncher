@@ -4,6 +4,10 @@
 // 房间配置是全部 ini 的唯一事实来源，所以这里覆盖了 cluster.ini 与 server.ini
 // 的所有可配置项。表单状态是本地副本，只有点保存才写回后端。
 // 切换编辑对象时由父组件用 :key 重建本组件，因此不需要 watch 同步。
+//
+// 保存成功后刻意**不关闭**表单：只弹一条「保存成功」，用户还能接着改下一项。
+// 新建时把后端返回的房间 id 补回表单，于是这次保存之后表单就变成「编辑」状态，
+// 再点保存走更新而不是又建一个房间。
 
 import { computed, reactive } from 'vue';
 
@@ -97,7 +101,32 @@ function toNum(value, fallback) {
   return Number.isFinite(n) && n > 0 ? Math.round(n) : fallback;
 }
 
+/**
+ * 把后端保存后的房间同步回表单。
+ * 端口与世界 id 是后端分配的，不同步的话第二次保存会把这些值当成「待分配」重算，
+ * 新建的分片还会被当成新分片。
+ */
+function adopt(room) {
+  form.id = room.id;
+  form.clusterKey = room.clusterKey || form.clusterKey;
+  form.masterPort = room.masterPort ?? form.masterPort;
+
+  const byName = new Map((room.shards || []).map(s => [s.name, s]));
+  form.shards.forEach((s, i) => {
+    const saved = byName.get(s.name.trim()) || (room.shards || [])[i];
+    if (!saved) return;
+    s.gameId = saved.gameId;
+    s.serverPort = saved.serverPort;
+    s.masterServerPort = saved.masterServerPort;
+    s.authenticationPort = saved.authenticationPort;
+    s.name = saved.name;
+    // 已落盘的分片不能再改名：名字就是存档目录名
+    s.isNew = false;
+  });
+}
+
 async function save() {
+  const creating = isNew.value;
   const payload = {
     id: form.id,
     name: form.name.trim(),
@@ -133,15 +162,20 @@ async function save() {
   };
 
   const { ok, data } = await guard(() =>
-    isNew.value ? rooms.create(payload) : rooms.update(payload));
+    creating ? rooms.create(payload) : rooms.update(payload));
   if (!ok) return;
 
-  // 房间运行中改配置不会立即生效，后端会带一条提示
-  const hint = data && data.hint;
-  if (hint) toast(hint, 'warn');
-  else toast(isNew.value ? '房间已创建' : '房间已保存');
+  // 新建返回房间对象；更新返回 { room, hint }
+  const room = creating ? data : (data && data.room) || data;
+  if (room && room.id) adopt(room);
 
-  emit('saved');
+  toast('保存成功');
+  // 房间运行中改配置不会立即生效，后端会带一条提示；成功提示照常给，再补一条警告
+  const hint = !creating && data && data.hint;
+  if (hint) toast(hint, 'warn');
+
+  // 通知父组件把编辑目标切到刚保存的房间（新建后别再用同一个表单建第二个）
+  emit('saved', room);
 }
 </script>
 
