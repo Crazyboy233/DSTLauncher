@@ -28,6 +28,30 @@ const mods = ref([]);
 const loading = ref(false);
 const loadError = ref('');
 
+/* ---------- 本地（自制）mod 目录 ---------- */
+
+/**
+ * 自制 mod 的唯一正确位置是「服务器安装目录」下的 mods/。
+ *
+ * 面板自己有个 ugc_mods（只存创意工坊 mod，还要 acf 登记），程序目录里又留着
+ * 早期开发用的 mods/——这两处都容易被当成「放自己 mod 的地方」，但引擎是按
+ * MODS_ROOT（固定相对 bin 的 ../mods）拼路径加载本地 mod 的，放错了既不加载
+ * 也不报错。所以底部这条提示要常驻，列表空着的时候尤其需要。
+ */
+const modsDir = ref('');
+const modsDirInstalled = ref(true);
+
+async function loadModsDir() {
+  try {
+    const d = await modApi.dir();
+    modsDir.value = (d && d.modsDir) || '';
+    modsDirInstalled.value = !d || d.installed !== false;
+  } catch (_) {
+    // 取不到就退回通用文案（硬编码 Steam 默认路径），不打扰用户
+    modsDir.value = '';
+  }
+}
+
 /**
  * 已启用的模组置顶显示，组内按名称排序。
  *
@@ -262,6 +286,7 @@ function onToggled({ id, enabled }) {
 
 onMounted(async () => {
   await load();
+  await loadModsDir();
   // 面板重启后若上次更新还没结束，恢复轮询而不是丢掉进度
   await pollUpdate();
   if (updating.value) startPoll();
@@ -401,6 +426,21 @@ watch(() => rooms.current, () => {
         icon="package"
         text="还没有模组。展开上方「创意工坊」搜索或粘贴 ID 下载，下载完成后会出现在这里。"
       />
+
+      <!-- 本地 mod 目录提示：常在底部，一条模组都没有时最需要它 -->
+      <div class="mods-dir">
+        <Icon name="folder" size="15" />
+        <span>
+          自己的 mod 放这里：把整个 mod 文件夹（里面要有 <code>modinfo.lua</code>）拷到服务器安装目录下的
+          <strong>mods</strong> 文件夹
+          <code v-if="modsDir">{{ modsDir }}</code>
+          <code v-else>steam\steamapps\common\Don't Starve Together Dedicated Server\mods</code><template
+            v-if="modsDir && !modsDirInstalled"
+          >（服务器文件尚未装好，这是装好后的位置）</template>，
+          再点右上角「刷新」就会以目录名出现在上面，勾选启用即可。
+          放进面板程序目录或 ugc_mods 都不会被加载——ugc_mods 只存创意工坊 mod。
+        </span>
+      </div>
     </template>
   </UiCard>
 </template>

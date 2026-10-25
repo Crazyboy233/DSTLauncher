@@ -111,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 
 	// 模组
 	mux.HandleFunc("/api/mods", s.handleMods)
+	mux.HandleFunc("/api/mods/dir", s.handleModsDir)
 	mux.HandleFunc("/api/mods/toggle", s.handleModToggle)
 	mux.HandleFunc("/api/mods/config", s.handleModConfig)
 	mux.HandleFunc("/api/mods/schema", s.handleModSchema)
@@ -946,6 +947,25 @@ func (s *Server) syncModsSetup() {
 	if err := mods.WriteSetupLua(ids); err != nil {
 		fmt.Printf("[!] 写入 dedicated_server_mods_setup.lua 失败: %v\n", err)
 	}
+}
+
+// handleModsDir 返回「本地（自制）模组」该放哪个目录，供模组页在底部提示用户。
+//
+// 这个提示是针对一个真实存在的误解：面板自己有个 ugc_mods 目录（启动横幅里还叫
+// 「模组目录」），程序目录下又留着早期开发用的 mods 目录，用户很容易把自制 mod
+// 放进这两处，结果模组页里什么都不出现。而引擎是按 MODS_ROOT（固定为服务器安装
+// 目录下的 mods/）拼路径加载本地 mod 的（scripts/modindex.lua:415 TryLoadMod），
+// 放错位置既不会加载也不会报错。
+//
+// 与房间无关（安装级信息），不需要 room 参数。
+func (s *Server) handleModsDir(w http.ResponseWriter, r *http.Request) {
+	respond(w, 200, map[string]interface{}{
+		// 服务器还没装好时 modsDir 是「装完之后的预期路径」，前端照样能展示，
+		// 但用 installed 区分，避免让用户去一个还不存在的目录里找问题
+		"modsDir":   modmgr.NewManager("", s.steam.GameDir(), s.ugcDir, nil).ModsDir(),
+		"ugcDir":    s.ugcDir,
+		"installed": s.steam.IsInstalled(),
+	}, nil)
 }
 
 func (s *Server) handleMods(w http.ResponseWriter, r *http.Request) {

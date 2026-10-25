@@ -133,6 +133,8 @@ export const serverApi = {
 
 export const modApi = {
   list: roomId => request('/api/mods', { params: { room: roomId } }),
+  /** 本地（自制）mod 该放的目录：{ modsDir, ugcDir, installed } */
+  dir: () => request('/api/mods/dir'),
   toggle: (roomId, id, enabled) => request('/api/mods/toggle', {
     params: { room: roomId, id, enabled },
   }),
