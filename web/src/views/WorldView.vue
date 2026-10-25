@@ -11,7 +11,7 @@
 // 世界规则（settings）与世界生成（worldgen）分开成两个标签页展示；
 // 服务器运行中整个页面冻结——游戏只在启动时读这份文件，改了也不生效。
 
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 
 import Icon from '@/components/ui/Icon.vue';
 import UiCard from '@/components/ui/UiCard.vue';
@@ -156,17 +156,22 @@ function onOptionChange(o, value) {
 
 /* ---------- 加载与保存 ---------- */
 
-function applyView(data) {
-  view.value = data;
-  enabled.value = data.config.overrideEnabled;
-  worldgenPreset.value = data.config.worldgenPreset;
-  settingsPreset.value = data.config.settingsPreset;
-  original.enabled = data.config.overrideEnabled;
-  original.worldgenPreset = data.config.worldgenPreset;
-  original.settingsPreset = data.config.settingsPreset;
+/** 把一份配置同步到表单，并把草稿重置为「已保存」状态 */
+function applyConfig(cfg) {
+  enabled.value = cfg.overrideEnabled;
+  worldgenPreset.value = cfg.worldgenPreset;
+  settingsPreset.value = cfg.settingsPreset;
+  original.enabled = cfg.overrideEnabled;
+  original.worldgenPreset = cfg.worldgenPreset;
+  original.settingsPreset = cfg.settingsPreset;
 
   Object.keys(draft).forEach(k => delete draft[k]);
-  Object.assign(draft, data.config.overrides || {});
+  Object.assign(draft, cfg.overrides || {});
+}
+
+function applyView(data) {
+  view.value = data;
+  applyConfig(data.config);
 }
 
 async function load() {
@@ -198,11 +203,24 @@ function selectShard(name) {
   load();
 }
 
+/**
+ * 保存世界配置。
+ *
+ * 保存后不整页重拉：load() 会把 loading 置 true，模板立刻切成骨架屏、
+ * 选项卡片整个从 DOM 移除，文档高度骤降，浏览器把 scrollTop 夹到 0——
+ * 表现就是「点保存，页面跳回顶部」。保存接口本身已返回写盘后的配置，
+ * 直接用它静默同步表单即可，DOM 不动，滚动位置也就不会变。
+ */
 async function save() {
   if (frozen.value) {
     toast('服务器运行中，请先关闭服务器再保存', 'warn');
     return;
   }
+
+  // 兜底：即使页面高度因其他原因变化（比如开着「只看已改动」时列表收缩），
+  // 保存完也把滚动位置放回去，而不是留在被夹到的位置。
+  const lastScroll = window.scrollY;
+
   saving.value = true;
   const { ok, data } = await guard(
     () => worldApi.save(rooms.currentId, {
@@ -216,9 +234,20 @@ async function save() {
   );
   saving.value = false;
   if (!ok) return;
+
   // 游戏只在启动时读这个文件，运行中的分片感知不到改动
   if (data && data.needRestart) toast('有分片正在运行，重启后才会生效');
-  await load();
+
+  if (data && data.config) {
+    if (view.value) view.value.config = data.config;
+    applyConfig(data.config);
+  } else {
+    await load(); // 接口没回配置时的兜底路径
+  }
+
+  await nextTick();
+  const maxTop = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo({ top: Math.min(lastScroll, Math.max(maxTop, 0)) });
 }
 
 function resetAll() {
