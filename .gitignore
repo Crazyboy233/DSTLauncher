@@ -28,3 +28,6 @@ steamcmd/
 # 共享工坊模组目录（-ugc_directory，所有房间共用同一份 mod）
 ugc_mods/
 extract-worldsettings.exe
+
+# 其他
+tmp/
