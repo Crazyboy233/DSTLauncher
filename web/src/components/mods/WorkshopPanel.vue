@@ -154,7 +154,7 @@ function download(item) {
                   :key="t" class="workshop-tag">{{ t }}</span>
           </div>
         </div>
-        <button class="btn btn-sm" :title="item.installed ? '删除本地文件并重新下载（强制刷新）' : '从创意工坊下载'"
+        <button class="btn btn-sm btn-primary" :title="item.installed ? '删除本地文件并重新下载（强制刷新）' : '从创意工坊下载'"
                 @click="download(item)">
           <Icon name="download" size="14" />{{ item.installed ? '重新下载' : '下载' }}
         </button>

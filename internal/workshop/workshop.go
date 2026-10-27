@@ -3,17 +3,25 @@
 //
 // 网络现实（本机实测，2026-10）：steamcommunity.com 的工坊网页在境内
 // 不可直连，游戏加速器通常也只放行 Steam 的 CDN 与 api/store 域名；
-// 而 api.steampowered.com 恰好可达。因此：
+// 而 api.steampowered.com 相对可达。因此：
 //   - 按 ID 查详情走 ISteamRemoteStorage/GetPublishedFileDetails，免 key；
 //   - 关键词搜索走 IPublishedFileService/QueryFiles，需要免费的
 //     Steam Web API Key（存 panel.json，可选配置）。
+//
+// 但 api.steampowered.com 的 HTTPS 通道本身很不稳：TLS 握手能过，随后
+// 请求被静默丢弃，实测同一请求三次里两次挂到超时（面板里就表现为
+// "Client.Timeout exceeded while awaiting headers"）；同一主机的明文
+// HTTP(80) 几乎每次都秒回。所以这里每个请求都按 HTTPS → HTTP 依次尝试，
+// 见 call()。
 //
 // 下载不在这里：拿到 ID 后复用模组预更新链路（-only_update_server_mods），
 // 见 server.Manager.UpdateMods 的单模组模式。
 package workshop
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,17 +47,18 @@ type Item struct {
 }
 
 const (
-	detailsURL = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
-	searchURL  = "https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/"
+	apiHost     = "api.steampowered.com"
+	detailsPath = "/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+	searchPath  = "/IPublishedFileService/QueryFiles/v1/"
 	// dstAppID 是 DST 创意工坊的 appid（注意不是专用服务器的 343050）。
 	dstAppID = "322330"
 
 	userAgent = "dst-windows-panel/1.0"
 )
 
-// client 走默认 Transport（自动继承 HTTP_PROXY 等环境变量，
-// 游戏加速器改系统代理时同样生效）。
-var client = &http.Client{Timeout: 20 * time.Second}
+// client 走默认 Transport（自动继承 HTTP_PROXY 等环境变量）。
+// 不设全局 Timeout：每次尝试自己带 context 时限，见 once()。
+var client = &http.Client{}
 
 // idRe 匹配 4~15 位数字，覆盖工坊 ID 的实际长度范围。
 var idRe = regexp.MustCompile(`[0-9]{4,15}`)
@@ -107,7 +116,7 @@ func Details(ids []string) ([]Item, error) {
 		for i, id := range batch {
 			form.Set(fmt.Sprintf("publishedfileids[%d]", i), id)
 		}
-		resp, err := postForm(detailsURL, form)
+		resp, err := call(detailsPath, nil, form)
 		if err != nil {
 			return nil, fmt.Errorf("查询创意工坊详情失败: %w", err)
 		}
@@ -236,22 +245,9 @@ func Search(apiKey, query string, page int) ([]Item, error) {
 	q.Set("return_short_description", "true")
 	q.Set("return_metadata", "true")
 
-	req, err := http.NewRequest(http.MethodGet, searchURL+"?"+q.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := client.Do(req)
+	body, err := call(searchPath, q, nil)
 	if err != nil {
 		return nil, fmt.Errorf("搜索请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := readAll(resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("搜索接口返回 HTTP %d: %s", resp.StatusCode, truncateErr(body))
 	}
 
 	var sr struct {
@@ -287,30 +283,86 @@ func Search(apiKey, query string, page int) ([]Item, error) {
 
 /* ---------- HTTP 工具 ---------- */
 
-func postForm(target string, form url.Values) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
+// schemes 是接口的尝试顺序。HTTPS 优先是为了完整性，以及搜索时别把
+// API Key 送进明文通道；但 HTTPS 在本机实测经常连上就被静默丢掉，
+// 所以失败后必须能退到 HTTP(80)。
+var schemes = []string{"https", "http"}
+
+// attemptTimeout 是单次尝试的时限。总耗时上限约 len(schemes)*attemptTimeout，
+// 比原来「一个 20 秒硬超时、失败就报错」更能容忍这种半通不通的网络。
+const attemptTimeout = 8 * time.Second
+
+// apiError 表示对端已经给出 HTTP 应答（非 200）。这种情况换协议也没用，
+// 直接向上抛，避免再白等一轮。
+type apiError struct {
+	status int
+	body   string
+}
+
+func (e *apiError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.status, e.body)
+}
+
+// call 按 schemes 顺序请求同一接口，任一成功即返回，全失败才报错。
+// q 为 GET 查询参数；form 非空则改为 POST 表单。
+func call(path string, q, form url.Values) ([]byte, error) {
+	var lastErr error
+	for _, scheme := range schemes {
+		target := scheme + "://" + apiHost + path
+		if q != nil {
+			target += "?" + q.Encode()
+		}
+		body, err := once(target, form)
+		if err == nil {
+			return body, nil
+		}
+		var ae *apiError
+		if errors.As(err, &ae) {
+			return nil, err
+		}
+		lastErr = fmt.Errorf("%s 不通: %w", scheme, err)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("未知错误")
+	}
+	return nil, fmt.Errorf("Steam 接口不可达（HTTPS / HTTP 都试过，可能是网络或加速器拦截；%w）", lastErr)
+}
+
+// once 发一次请求，带单次时限。
+func once(target string, form url.Values) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+	defer cancel()
+
+	var (
+		req *http.Request
+		err error
+	)
+	if form != nil {
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(form.Encode()))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+	} else {
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	}
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", userAgent)
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := readAll(resp)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateErr(body))
+		return nil, &apiError{status: resp.StatusCode, body: truncateErr(body)}
 	}
 	return body, nil
-}
-
-func readAll(resp *http.Response) ([]byte, error) {
-	return io.ReadAll(resp.Body)
 }
 
 func truncateErr(body []byte) string {
